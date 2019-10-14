@@ -26,7 +26,7 @@ class lightUp(object):
 
 class retina(object):
 
-    def __init__(self, rad = 100, kernel = 25):
+    def __init__(self, rad = 50, kernel = 25):
         self._rad = rad
         self._kernel = kernel
 
@@ -54,10 +54,11 @@ class retina(object):
         x_c, y_c = coor[0], coor[1]
 
         blurred_img = cv2.GaussianBlur(I, (self._kernel, self._kernel), 0)
+        #blurred_img = np.zeros(blurred_img.shape)
 
         mask = np.zeros(I.shape, dtype=np.uint8)
-#         if isIt==False:
-#             rad *=2
+        if isIt==False:
+            self._rad  = 100
         mask = cv2.circle(mask, (x_c, y_c), self._rad, (255,255,255), -1)
         if isIt:
             out = np.where(mask==np.array([255, 255, 255]), I, blurred_img)
@@ -154,7 +155,7 @@ class posnet(nn.Module):
     
 class locnet(nn.Module):
     
-    def __init__(self, std = 0.17):
+    def __init__(self, std = 0.10):
         super(locnet, self).__init__()
         self._posnet = posnet()
         self.fc1 = nn.Linear(4*4*128, 16)
@@ -163,7 +164,8 @@ class locnet(nn.Module):
         
     def forward(self, x):
         x = self._posnet(x)
-        x = F.leaky_relu(self.fc1(x))
+        x = self.fc1(x)
+        x = F.leaky_relu(x)
         mu = torch.tanh(self.fc2(x))
         
         noise = torch.zeros_like(mu)
