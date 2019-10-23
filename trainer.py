@@ -62,12 +62,12 @@ class Trainer(object):
         self.device = torch.device("cuda:0" if self.use_cuda else "cpu")
         self.ckpt_dir = config.ckpt_dir
         self.resume = config.resume
-        self.model_name = config.model_name
+        self.model_name = 'rfc'
         self.use_tensorboard = config.use_tensorboard
         self.is_plot = config.is_plot
         
         if self.use_tensorboard:
-            tensorboard_dir = 'runs/robotics_focus_control'#self.logs_dir + self.model_name
+            tensorboard_dir = 'runs/rfc'#self.logs_dir + self.model_name
             print('[*] Saving tensorboard logs to {}'.format(tensorboard_dir))
             if not os.path.exists(tensorboard_dir):
                 os.makedirs(tensorboard_dir)
@@ -272,4 +272,5 @@ class Trainer(object):
         self.optimizer.load_state_dict(ckpt['optim_state'])   
         
         print("[*] Loaded model from {}".format(self.ckpt_dir))
+
    
