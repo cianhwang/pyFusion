@@ -83,11 +83,11 @@ def getDefocuesImage(focusPos, J, dpt):
         focusPos, J, dpt = focusPos.cpu(), J.cpu(), dpt.cpu()
 
     for i in range(J.size()[0]):
-        J_np = J[i].numpy().transpose(1, 2, 0)
-        dpt_np = dpt[i].squeeze().numpy()
-        focusPos_np = focusPos[i].squeeze().detach().numpy()/2+0.5
-        #focal_img = myd2d(J_np, dpt_np, focusPos_np, inpaint_occlusion=True)
-        focal_img = torch.rand_like(J[i])
+        J_np = (J[i].numpy().transpose(1, 2, 0)*255.).astype(np.uint8) # uint8
+        dpt_np = dpt[i].squeeze().numpy()*1000
+        focusPos_np = focusPos[i].squeeze().detach().numpy()*2000+3000 # 1000 ~ 5000 focus range
+        focal_img = myd2d(J_np, dpt_np, focusPos_np, inpaint_occlusion=True)
+        #focal_img = torch.rand_like(J[i])
         imageTensor.append(focal_img)
         
     imageTensor = torch.stack(imageTensor)
