@@ -2,3 +2,6 @@
 *.jpeg
 awnet/
 ckpt/
+runs/
+./.ipynb_checkpoints/
+./__pycache__/

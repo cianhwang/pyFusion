@@ -9,9 +9,13 @@ import torch.nn.functional as F
 import numpy as np
 from dep2def import depth2defocus
 from functools import partial
+from awnet import pwc_5x5_sigmoid_bilinear   # cm:import AWnet model
 
 
 # In[2]:
+
+AWnet = pwc_5x5_sigmoid_bilinear.pwc_residual().cuda()
+AWnet.load_state_dict(torch.load('awnet/fs0_61_294481_0.00919393_dict.pkl'))
 
 
 def get_parameter_number(net):
@@ -83,7 +87,7 @@ def getDefocuesImage(focusPos, J, dpt):
         dpt_np = dpt[i].squeeze().numpy()
         focusPos_np = focusPos[i].squeeze().detach().numpy()/2+0.5
         #focal_img = myd2d(J_np, dpt_np, focusPos_np, inpaint_occlusion=True)
-        focal_img = torch.rand(J[i].size())
+        focal_img = torch.rand_like(J[i])
         imageTensor.append(focal_img)
         
     imageTensor = torch.stack(imageTensor)
@@ -103,10 +107,7 @@ def fuseTwoImages(I, J_hat):
         fusedTensor (B, C, H, W): current timestep fused minibatch
     '''
 
-    #AWnet = pwc_5x5_sigmoid_bilinear.pwc_residual().to(self.device)
-    #AWnet.load_state_dict(torch.load('awnet/fs0_61_294481_0.00919393_dict.pkl'))
-    #dfs_freeze(AWnet)
-
-    #fusedTensor,_ ,_ = AWnet(J_hat,I)
+    with torch.no_grad():
+        fusedTensor,_ ,_ = AWnet(J_hat,I)
     
-    return I+J_hat 
+    return fusedTensor 
