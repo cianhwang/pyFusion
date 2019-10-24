@@ -15,7 +15,7 @@ import utils
 from model import focusLocNet
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
-
+import matplotlib.pyplot as plt
 
 # In[2]:
 
@@ -150,8 +150,11 @@ class Trainer(object):
                 # data shape: y_train (B, Seq, C, H, W)
                 log_pi = []
                 J_est = []
+                I_est = []
+                loc = []
                 J_prev = y_train[:, 0, ...] ## set J_prev to be first frame of the image sequences
                 J_est.append(J_prev)
+                I_est.append(J_prev)
 
                 for t in range(y_train.size()[1]-1):
                     # for each time step: estimate, capture and fuse.
@@ -160,8 +163,12 @@ class Trainer(object):
                     I = utils.getDefocuesImage(l, y_train[:, t+1, ...], dpt[:, t+1, ...])
                     J_prev = utils.fuseTwoImages(I, J_prev)
                     J_est.append(J_prev)
+                    I_est.append(I)
+                    loc.append(l)
 
                 J_est = torch.stack(J_est, dim = 1)
+                I_est = torch.stack(I_est, dim = 1)
+                loc = torch.stack(loc, dim = 1)
 
                 log_pi = torch.stack(log_pi).transpose(1, 0)
                 R = -utils.reconsLoss(J_est, y_train)
@@ -193,11 +200,15 @@ class Trainer(object):
                 if self.use_tensorboard:
                     iteration = epoch*len(self.train_loader) + i
                     self.writer.add_scalar('train_loss', losses.avg, iteration)
-                    
-                    if self.is_plot:
-                        display_tensor = torch.cat([J_est[0],y_train[0]], dim = 0)
-                        display_grid = torchvision.utils.make_grid(display_tensor, nrow = seq)
-                        self.writer.add_image('pred-gt', display_grid, iteration)
+            if self.use_tensorboard and self.is_plot:
+                display_tensor = torch.cat([I_est[0],J_est[0],y_train[0]], dim = 0)
+                display_grid = torchvision.utils.make_grid(display_tensor, nrow = seq)
+                self.writer.add_image('I-pred-gt', display_grid, epoch)
+                fig = plt.figure()
+                if self.use_cuda:
+                    loc = loc.cpu()
+                plt.plot(loc[0].detach().numpy()*2000+3000)
+                self.writer.add_figure('loc', fig, epoch)
 
             return losses.avg
     

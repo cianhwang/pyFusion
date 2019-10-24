@@ -94,7 +94,6 @@ class DAVISImageFolder(data.Dataset):
         
         for i in range(self.seq):
             h5_path = self.img_list[min(index+i, len(self.img_list)-1)].rstrip()
-            print(h5_path)
             img = self.load_imgs(h5_path)
             final_img = torch.from_numpy(np.ascontiguousarray(
                 img).transpose(2, 0, 1)).contiguous().float()
@@ -104,7 +103,6 @@ class DAVISImageFolder(data.Dataset):
         
         for i in range(self.seq):
             dpt_h5_path = self.dpt_list[min(index+i, len(self.img_list)-1)].rstrip()
-            print(dpt_h5_path)
             dpt = self.load_dpt(dpt_h5_path)
             final_dpt = torch.from_numpy(np.ascontiguousarray(
                 dpt)).unsqueeze(0).contiguous().float()

@@ -16,7 +16,7 @@ def add_argument_group(name):
 
 # data params
 data_arg = add_argument_group('Data Params')
-data_arg.add_argument('--batch_size', type=int, default=2,
+data_arg.add_argument('--batch_size', type=int, default=1,
                       help='# of images in each batch of data')
 data_arg.add_argument('--seq', type=int, default=5,
                       help='#seq of images in each batch of data')
@@ -27,7 +27,7 @@ data_arg.add_argument('--std', type=int, default=0.17,
 train_arg = add_argument_group('Training Params')
 train_arg.add_argument('--is_train', type=str2bool, default=True,
                        help='Whether to train or test the model')
-train_arg.add_argument('--epochs', type=int, default=20,
+train_arg.add_argument('--epochs', type=int, default=5,
                        help='# of epochs to train for')
 train_arg.add_argument('--init_lr', type=float, default=3e-4,
                        help='Initial learning rate value')

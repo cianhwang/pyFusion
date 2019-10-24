@@ -7,15 +7,10 @@ from data_loader import load_davis_dataset
 
 def main(config):
 
-    # ensure directories are setup
-    prepare_dirs(config)
-
     # ensure reproducibility
     torch.manual_seed(config.random_seed)
-    kwargs = {}
     if config.use_cuda:
         torch.cuda.manual_seed(config.random_seed)
-        kwargs = {'num_workers': 1, 'pin_memory': True}
 
     # instantiate data loaders
     if config.is_train:
