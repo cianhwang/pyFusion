@@ -47,10 +47,10 @@ class focusLocNet(nn.Module):
         self.block5 = convBlock(64, 128, 5, 2)        
         self.block6 = convBlock(128, 128, 5, 4, isBn = False)
         self.lstm = nn.LSTMCell(2304, 512)
-        self.fc1 = nn.Linear(2304, 512)
+        self.fc1 = nn.Linear(512, 1)
         self.fc2 = nn.Linear(512, 128)
         self.fc3 = nn.Linear(128, 16)
-        self.fc4 = nn.Linear(16, 1)   
+        self.fc4 = nn.Linear(16, 1)
         
         self.lstm_hidden = self.init_hidden()
         
@@ -77,6 +77,7 @@ class focusLocNet(nn.Module):
 #             self.h, self.c = self.lstm(x, (self.h, self.c))
         x = F.relu(self.lstm_hidden[0])
 #         x = F.leaky_relu(self.fc1(x))
+        b = self.fc1(x.detach()).squeeze(1)
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
         mu = torch.tanh(self.fc4(x))
@@ -91,7 +92,7 @@ class focusLocNet(nn.Module):
         log_pi = Normal(mu, self.std).log_prob(pos)
         log_pi = torch.sum(log_pi, dim=1)
         
-        return mu, pos, log_pi
+        return mu, pos, b, log_pi
 
 class convBlock(nn.Module):
     '''

@@ -16,6 +16,7 @@ from model import focusLocNet
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 
 # In[2]:
 
@@ -152,31 +153,48 @@ class Trainer(object):
                 J_est = []
                 I_est = []
                 loc = []
+                baselines = []
                 J_prev = y_train[:, 0, ...] ## set J_prev to be first frame of the image sequences
                 J_est.append(J_prev)
                 I_est.append(J_prev)
+                reward = []
 
                 for t in range(y_train.size()[1]-1):
                     # for each time step: estimate, capture and fuse.
-                    mu, l, p = self.model(J_prev)
+                    mu, l, b, p = self.model(J_prev)
                     log_pi.append(p)
                     I = utils.getDefocuesImage(l, y_train[:, t+1, ...], dpt[:, t+1, ...])
                     J_prev = utils.fuseTwoImages(I, J_prev)
                     J_est.append(J_prev)
                     I_est.append(I)
                     loc.append(l)
+                    baselines.append(b)
+                    
+                    r = -utils.reconsLoss(J_prev, y_train[:, t+1, ...])
+                    reward.append(r)
+                    for tt in range(t):
+                        reward[tt] += r
 
                 J_est = torch.stack(J_est, dim = 1)
                 I_est = torch.stack(I_est, dim = 1)
                 loc = torch.stack(loc, dim = 1)
 
+                baselines = torch.stack(baselines).transpose(1, 0)
                 log_pi = torch.stack(log_pi).transpose(1, 0)
-                R = -utils.reconsLoss(J_est, y_train)
-                R = R.unsqueeze(1).repeat(1, y_train.size()[1]-1)
+                reward = torch.stack(reward).transpose(1, 0)
+                
+#                 R = -utils.reconsLoss(J_est, y_train)
+#                 R = R.unsqueeze(1).repeat(1, y_train.size()[1]-1)
+                R = reward
+                
+                loss_baseline = F.mse_loss(baselines, R)
+                
+                adjusted_reward = R - baselines.detach()              
 
                 ## Basic REINFORCE algorithm
-                loss = torch.sum(-log_pi*R, dim=1)
-                loss = torch.mean(loss, dim=0)
+                loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
+                loss_reinforce = torch.mean(loss_reinforce, dim=0)
+                loss = loss_baseline + loss_reinforce
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -190,7 +208,7 @@ class Trainer(object):
 
                 pbar.set_description(
                     (
-                        "{:.1f}s - loss: {:.3f}".format(
+                        "{:.1f}s - loss: {:.5f}".format(
                             (toc-tic), loss.item()
                         )
                     )
@@ -231,8 +249,10 @@ class Trainer(object):
                 # data shape: y_train (B, Seq, C, H, W)
                 log_pi = []
                 J_est = []
+                baselines = []
                 J_prev = y_test[:, 0, ...] ## set J_prev to be first frame of the image sequences
                 J_est.append(J_prev)
+                reward = []
 
                 for t in range(y_test.size()[1]-1):
                     # for each time step: estimate, capture and fuse.
@@ -241,16 +261,31 @@ class Trainer(object):
                     I = utils.getDefocuesImage(l, y_test[:, t+1, ...], dpt[:, t+1, ...])
                     J_prev = utils.fuseTwoImages(I, J_prev)
                     J_est.append(J_prev)
+                    baselines.append(b)
+                    
+                    r = -utils.reconsLoss(J_prev, y_train[:, t+1, ...])
+                    reward.append(r)
+                    for tt in range(t):
+                        reward[tt] += r
 
                 J_est = torch.stack(J_est, dim = 1)
 
+                baselines = torch.stack(baselines).transpose(1, 0)
                 log_pi = torch.stack(log_pi).transpose(1, 0)
-                R = -utils.reconsLoss(J_est, y_test)
-                R = R.unsqueeze(1).repeat(1, y_test.size()[1]-1)
-
+                #R = -utils.reconsLoss(J_est, y_test)
+                #R = R.unsqueeze(1).repeat(1, y_test.size()[1]-1)
+                
+                reward = torch.stack(reward).transpose(1, 0)
+                R = reward
+                
+                loss_baseline = F.mse_loss(baselines, R)
+                
+                adjusted_reward = R - baselines.detach()
+          
                 ## Basic REINFORCE algorithm
-                loss = torch.sum(-log_pi*R, dim=1)
-                loss = torch.mean(loss, dim=0)
+                loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
+                loss_reinforce = torch.mean(loss_reinforce, dim=0)
+                loss = loss_baseline + loss_reinforce
 
                 losses.update(loss.item(), y_test.size()[0])
 
