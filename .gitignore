@@ -1,7 +1,11 @@
 *.pth
+*.jpg
 *.jpeg
 awnet/
 ckpt/
 runs/
+awnet-test-imgs/
+dfs/results/
+results4iccp/
 ./.ipynb_checkpoints/
 ./__pycache__/

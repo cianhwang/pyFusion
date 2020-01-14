@@ -185,7 +185,7 @@ class Trainer(object):
                 
 #                 R = -utils.reconsLoss(J_est, y_train)
 #                 R = R.unsqueeze(1).repeat(1, y_train.size()[1]-1)
-                R = reward
+                R = reward * 100
                 
                 loss_baseline = F.mse_loss(baselines, R)
                 
@@ -276,7 +276,7 @@ class Trainer(object):
                 #R = R.unsqueeze(1).repeat(1, y_test.size()[1]-1)
                 
                 reward = torch.stack(reward).transpose(1, 0)
-                R = reward
+                R = reward * 100
                 
                 loss_baseline = F.mse_loss(baselines, R)
                 
