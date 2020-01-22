@@ -153,15 +153,19 @@ class Trainer(object):
                 J_est = []
                 I_est = []
                 loc = []
+                l = torch.rand(self.batch_size, 1, device=self.device)*2-1
+                loc.append(l)
                 baselines = []
-                J_prev = y_train[:, 0, ...] ## set J_prev to be first frame of the image sequences
+
+                I =  utils.getDefocuesImage(l, y_train[:, 0, ...], dpt[:, 0, ...])
+                J_prev = I#y_train[:, 0, ...] ## set J_prev to be first frame of the image sequences
                 J_est.append(J_prev)
-                I_est.append(J_prev)
+                I_est.append(I)
                 reward = []
 
                 for t in range(y_train.size()[1]-1):
                     # for each time step: estimate, capture and fuse.
-                    mu, l, b, p = self.model(J_prev)
+                    mu, l, b, p = self.model(I, l)
                     log_pi.append(p)
                     I = utils.getDefocuesImage(l, y_train[:, t+1, ...], dpt[:, t+1, ...])
                     J_prev = utils.fuseTwoImages(I, J_prev)
@@ -172,8 +176,8 @@ class Trainer(object):
                     
                     r = -utils.reconsLoss(J_prev, y_train[:, t+1, ...])
                     reward.append(r)
-                    for tt in range(t):
-                        reward[tt] += r
+                    # for tt in range(t):
+                    #     reward[tt] += r
 
                 J_est = torch.stack(J_est, dim = 1)
                 I_est = torch.stack(I_est, dim = 1)
@@ -185,7 +189,7 @@ class Trainer(object):
                 
 #                 R = -utils.reconsLoss(J_est, y_train)
 #                 R = R.unsqueeze(1).repeat(1, y_train.size()[1]-1)
-                R = reward * 100
+                R = reward# * 100
                 
                 loss_baseline = F.mse_loss(baselines, R)
                 
@@ -219,13 +223,13 @@ class Trainer(object):
                     iteration = epoch*len(self.train_loader) + i
                     self.writer.add_scalar('train_loss', losses.avg, iteration)
             if self.use_tensorboard and self.is_plot:
-                display_tensor = torch.cat([I_est[0],J_est[0],y_train[0]], dim = 0)
+                display_tensor = torch.cat([I_est[0]/2+0.5,J_est[0]/2+0.5,y_train[0]/2+0.5], dim = 0)
                 display_grid = torchvision.utils.make_grid(display_tensor, nrow = seq)
                 self.writer.add_image('I-pred-gt', display_grid, epoch)
                 fig = plt.figure()
                 if self.use_cuda:
                     loc = loc.cpu()
-                plt.plot(loc[0].detach().numpy()*2000+3000)
+                plt.plot(loc[0].detach().numpy()*500+1500)
                 self.writer.add_figure('loc', fig, epoch)
 
             return losses.avg
@@ -265,8 +269,8 @@ class Trainer(object):
                     
                     r = -utils.reconsLoss(J_prev, y_train[:, t+1, ...])
                     reward.append(r)
-                    for tt in range(t):
-                        reward[tt] += r
+                    #for tt in range(t):
+                    #    reward[tt] += r
 
                 J_est = torch.stack(J_est, dim = 1)
 
@@ -276,7 +280,7 @@ class Trainer(object):
                 #R = R.unsqueeze(1).repeat(1, y_test.size()[1]-1)
                 
                 reward = torch.stack(reward).transpose(1, 0)
-                R = reward * 100
+                R = reward# * 100
                 
                 loss_baseline = F.mse_loss(baselines, R)
                 

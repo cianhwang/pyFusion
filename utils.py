@@ -17,6 +17,39 @@ from awnet import pwc_5x5_sigmoid_bilinear   # cm:import AWnet model
 AWnet = pwc_5x5_sigmoid_bilinear.pwc_residual().cuda()
 AWnet.load_state_dict(torch.load('awnet/fs0_61_294481_0.00919393_dict.pkl'))
 
+width = 256  # img.shape[1]
+f = 25
+fn = 4
+FoV_h = 10 * np.pi / 180
+pp = 2 * f * np.tan(FoV_h / 2) / width  # pixel pitch in mm
+gamma = 2.4
+# use partial is recommended to set lens parameter
+myd2d = partial(depth2defocus, f=f, fn=fn, pp=pp, r_step=1, inpaint_occlusion=False)  # this would fix f, fn, pp, and r_step
+
+def t2n(tensor, isImage = True):
+    if tensor.is_cuda:
+        tensor = tensor.cpu()
+    narray = tensor.numpy()
+    if isImage:
+        if len(narray.shape) == 4:
+            narray = narray.transpose(0, 2, 3, 1)
+        elif len(narray.shape) == 3:
+            narray = narray.transpose(1, 2, 0)
+        else:
+            raise Exception("convertion error!")
+    return narray
+
+def n2t(narray, isImage = True, device = "cuda:0"):
+    if isImage:
+        if len(narray.shape) == 4:
+            narray = narray.transpose(0, 3, 1, 2)
+        elif len(narray.shape) == 3:
+            narray = narray.transpose(2, 0, 1)  
+        else:
+            raise Exception("convertion error!")
+    tensor = torch.from_numpy(narray).float().to(device)
+    return tensor
+
 
 def get_parameter_number(net):
     '''
@@ -69,26 +102,21 @@ def getDefocuesImage(focusPos, J, dpt):
     Output: 
         imageTensor (B, C, H, W): current timestep captured minibatch [0 1]
     '''
-    width = 1080  # img.shape[1]
-    f = 25
-    fn = 4
-    FoV_h = 10 * np.pi / 180
-    pp = 2 * f * np.tan(FoV_h / 2) / width  # pixel pitch in mm
-    gamma = 2.4
-    # use partial is recommended to set lens parameter
-    myd2d = partial(depth2defocus, f=f, fn=fn, pp=pp)  # this would fix f, fn, pp, and r_step
+
     imageTensor = []
     is_cuda_tensor = focusPos.is_cuda
     if is_cuda_tensor:
         focusPos, J, dpt = focusPos.cpu(), J.cpu(), dpt.cpu()
 
     for i in range(J.size()[0]):
-        J_np = (J[i].numpy().transpose(1, 2, 0)*255.).astype(np.uint8) # uint8
+        J_np = t2n(J[i])
+        J_np = ((J_np+1)*127.5).astype(np.uint8) # uint8
         dpt_np = dpt[i].squeeze().numpy()*1000
-        focusPos_np = focusPos[i].squeeze().detach().numpy()*2000+3000 # 1000 ~ 5000 focus range
-        focal_img = myd2d(J_np, dpt_np, focusPos_np, inpaint_occlusion=True)/255.
-        #focal_img = torch.rand_like(J[i])
-        imageTensor.append(torch.Tensor(focal_img.transpose(2, 0, 1)))
+        focusPos_np = focusPos[i].squeeze().detach().numpy()*500+1500 # 1000 ~ 5000 focus range
+        focal_img = myd2d(J_np, dpt_np, focusPos_np, inpaint_occlusion=False)
+        focal_img = focal_img/127.5-1
+        focal_img = n2t(focal_img)
+        imageTensor.append(focal_img)
         
     imageTensor = torch.stack(imageTensor)
 
@@ -108,6 +136,6 @@ def fuseTwoImages(I, J_hat):
     '''
 
     with torch.no_grad():
-        fusedTensor,_ ,_ = AWnet(J_hat,I)
+        fusedTensor,_ ,_ = AWnet(J_hat/2+0.5,I/2+0.5)
     
-    return fusedTensor 
+    return torch.clamp(fusedTensor*2-1, -1, 1) 

@@ -39,11 +39,13 @@ def make_dataset(list_name, dpt_list_name):
     images_list = text_file.readlines()
     text_file.close()
     images_list = [os.path.join(os.getcwd(), i) for i in images_list]
+    #print(images_list)
     
     text_file = open(dpt_list_name, 'r')
     dpt_list = text_file.readlines()
     text_file.close()
     dpt_list = [os.path.join(os.getcwd(), i) for i in dpt_list]
+    #print(dpt_list)
     
     return images_list, dpt_list
 
@@ -52,23 +54,23 @@ class DAVISImageFolder(data.Dataset):
     def __init__(self, list_path, dpt_list_path, seq):
         img_list, dpt_list = make_dataset(list_path, dpt_list_path)
         if len(img_list) == 0:
-            raise(RuntimeError('Found 0 images in: ' + list_path))
+            raise RuntimeError('Found 0 images in: ' + list_path)
         self.list_path = list_path
         self.img_list = img_list
         
         self.dpt_list_path = dpt_list_path
         self.dpt_list = dpt_list
 
-        self.resized_height = 512
-        self.resized_width = 896
+        self.resized_height = 64
+        self.resized_width = 128
 
         self.seq = seq
 
     def load_imgs(self, img_path):
         img = imread(img_path)
-        img = np.float32(img)/255.0
+        img = np.float32(img)/127.5-1
         img = transform.resize(img, (self.resized_height, self.resized_width))
-
+        img = np.clip(img, -1.0, 1.0)
         return img
     
     def load_dpt(self, dpt_path):
@@ -125,28 +127,31 @@ class DAVISDataLoader():
         self.dataset = dataset
 
     def load_data(self):
+
         return self.data_loader
 
     def __len__(self):
+
         return len(self.dataset)
 
 
 # In[3]:
 
 
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 #get_ipython().run_line_magic('matplotlib', 'inline')
-#import matplotlib as mpl
+import matplotlib as mpl
 
 def imshow(img):
+    img = img / 2 + 0.5
     npimg = img.numpy()
     plt.figure(figsize=(20,10))
     plt.imshow(np.transpose(npimg, (1, 2, 0)))
     plt.show()
 
-def load_davis_dataset(seq=5, batch_size=1):
-    video_list = "../datasets/DAVIS/test_davis_video_list.txt"
-    dpt_list = "../datasets/DAVIS/test_davis_dpt_list.txt"
+def load_davis_dataset(seq=3, batch_size=1):
+    video_list = "../datasets/DAVIS/test_davis_video_sublist.txt"
+    dpt_list = "../datasets/DAVIS/test_davis_dpt_sublist.txt"
     video_data_loader = DAVISDataLoader(video_list, dpt_list, seq, batch_size)
     video_dataset = video_data_loader.load_data()
     return video_dataset
@@ -154,7 +159,7 @@ def load_davis_dataset(seq=5, batch_size=1):
 if __name__ == '__main__':
     video_dataset = load_davis_dataset()
     for i, data in enumerate(video_dataset):
-        print(i)
+        print("index:", i)
         imgSeq = data[0]
         dptSeq = data[1]
         imshow(torchvision.utils.make_grid(imgSeq[0]))

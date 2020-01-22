@@ -40,47 +40,54 @@ class focusLocNet(nn.Module):
         
         self.std = std
         
-        self.block1 = convBlock(3, 16, 7, 2)
+        self.block1 = convBlock(3, 16, 5, 2)
         self.block2 = convBlock(16, 32, 5, 2)
-        self.block3 = convBlock(32, 64, 5, 2)
-        self.block4 = convBlock(64, 64, 5, 2)
-        self.block5 = convBlock(64, 128, 5, 2)        
-        self.block6 = convBlock(128, 128, 5, 4, isBn = False)
-        self.lstm = nn.LSTMCell(2304, 512)
-        self.fc1 = nn.Linear(512, 1)
-        self.fc2 = nn.Linear(512, 128)
-        self.fc3 = nn.Linear(128, 16)
-        self.fc4 = nn.Linear(16, 1)
+        self.block3 = convBlock(32, 32, 5, 2)
+        self.block4 = convBlock(32, 64, 3, 2, isBn = False)
+        self.fc0 = nn.Linear(1, 16)
+        self.fc1 = nn.Linear(768, 256)
+        self.fc2 = nn.Linear(256+16, 256)
+        self.fc3 = nn.Linear(256, 256)
+        self.lstm = nn.LSTMCell(256, 128)
+
+        self.fc4 = nn.Linear(128, 128)
+        self.fc5 = nn.Linear(128, 1) 
         
-        self.lstm_hidden = self.init_hidden()
+        self.fc6 = nn.Linear(128, 1)
+        
+        self.init_hidden()
         
     def init_hidden(self):
         self.lstm_hidden = None
         return
         
-    def forward(self, x):
+    def forward(self, x, l_prev):
         x = self.block1(x)
         x = self.block2(x) 
         x = self.block3(x) 
         x = self.block4(x) 
-        x = self.block5(x) 
-        x = self.block6(x)
+#         x = self.block5(x) 
+#         x = self.block6(x)
         
         x = x.view(x.size()[0], -1)
+        x = F.relu(self.fc1(x))
+        y = F.relu(self.fc0(l_prev))
+        x = torch.cat((x, y), dim = 1)
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
         
         if self.lstm_hidden is None:
             self.lstm_hidden = self.lstm(x)
-
         else:
             self.lstm_hidden = self.lstm(x, self.lstm_hidden)
 
 #             self.h, self.c = self.lstm(x, (self.h, self.c))
         x = F.relu(self.lstm_hidden[0])
+        b = self.fc6(x.detach()).squeeze(1)
 #         x = F.leaky_relu(self.fc1(x))
-        b = self.fc1(x.detach()).squeeze(1)
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
-        mu = torch.tanh(self.fc4(x))
+#         x = F.relu(self.fc2(x))
+        x = F.relu(self.fc4(x))
+        mu = torch.tanh(self.fc5(x))
         
         noise = torch.zeros_like(mu)
         noise.data.normal_(std=self.std)
@@ -88,10 +95,10 @@ class focusLocNet(nn.Module):
 
         # bound between [-1, 1]
         pos = torch.tanh(pos)
-        
+
         log_pi = Normal(mu, self.std).log_prob(pos)
         log_pi = torch.sum(log_pi, dim=1)
-        
+         
         return mu, pos, b, log_pi
 
 class convBlock(nn.Module):
