@@ -10,7 +10,7 @@ import numpy as np
 from dep2def import depth2defocus
 from functools import partial
 from awnet import pwc_5x5_sigmoid_bilinear   # cm:import AWnet model
-
+import pytorch_ssim
 
 # In[2]:
 
@@ -87,11 +87,39 @@ def reconsLoss(J_est, J_gt):
     lossList = []
 
     for i in range(J_gt.size()[0]):
-        lossList.append(F.mse_loss(J_gt, J_est))
-    
+        lossList.append(torch.log10(4 / ((J_gt[i] - J_est[i])**2).mean()))
+#         lossList.append(F.mse_loss(J_gt[i], J_est[i]))
     lossTensor = torch.stack(lossList)
+    #lossTensor = pytorch_ssim.ssim(J_gt/2+0.5, J_est/2+0.5) #torch.stack(lossList)
     return lossTensor
-   
+
+def depth_from_region(depthmap, loc):
+    
+    H, W = depthmap.shape
+    x_l = int((loc[0]+1) * H / 2)
+    y_l = int((loc[1]+1) * W / 2)
+    x_r = int(min(H, x_l + min(H, W)//4))
+    y_r = int(min(W, y_l + min(H, W)//4))
+    
+    #print("fun_depth_from_region: ({}, {})".format(x_l, y_l))
+    
+    return depthmap[x_l:x_r, y_l:y_r].mean()
+
+def color_region(tensors, locs):
+    
+    S, C, H, W = tensors.size()
+    
+    for i in range(S):
+        loc = locs[i]
+        x_l = int((loc[0]+1) * H / 2)
+        y_l = int((loc[1]+1) * W / 2)
+        x_r = int(min(H, x_l + min(H, W)//4))
+        y_r = int(min(W, y_l + min(H, W)//4))
+        tensors[i][1:, x_l:x_r, y_l:y_r] = -1
+        tensors[i][0, x_l:x_r, y_l:y_r] = 1
+    
+    return tensors
+
 def getDefocuesImage(focusPos, J, dpt):
     '''
     Camera model. 
@@ -112,7 +140,8 @@ def getDefocuesImage(focusPos, J, dpt):
         J_np = t2n(J[i])
         J_np = ((J_np+1)*127.5).astype(np.uint8) # uint8
         dpt_np = dpt[i].squeeze().numpy()*1000
-        focusPos_np = focusPos[i].squeeze().detach().numpy()*500+1500 # 1000 ~ 5000 focus range
+        focusPos_np = focusPos[i].detach().numpy()
+        focusPos_np = depth_from_region(dpt_np, focusPos_np)
         focal_img = myd2d(J_np, dpt_np, focusPos_np, inpaint_occlusion=False)
         focal_img = focal_img/127.5-1
         focal_img = n2t(focal_img)

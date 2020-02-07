@@ -44,14 +44,14 @@ class focusLocNet(nn.Module):
         self.block2 = convBlock(16, 32, 5, 2)
         self.block3 = convBlock(32, 32, 5, 2)
         self.block4 = convBlock(32, 64, 3, 2, isBn = False)
-        self.fc0 = nn.Linear(1, 16)
+        self.fc0 = nn.Linear(2, 16)
         self.fc1 = nn.Linear(768, 256)
         self.fc2 = nn.Linear(256+16, 256)
         self.fc3 = nn.Linear(256, 256)
         self.lstm = nn.LSTMCell(256, 128)
 
         self.fc4 = nn.Linear(128, 128)
-        self.fc5 = nn.Linear(128, 1) 
+        self.fc5 = nn.Linear(128, 2) 
         
         self.fc6 = nn.Linear(128, 1)
         

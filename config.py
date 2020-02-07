@@ -16,7 +16,7 @@ def add_argument_group(name):
 
 # data params
 data_arg = add_argument_group('Data Params')
-data_arg.add_argument('--batch_size', type=int, default=8,
+data_arg.add_argument('--batch_size', type=int, default=4,
                       help='# of images in each batch of data')
 data_arg.add_argument('--seq', type=int, default=5,
                       help='#seq of images in each batch of data')
