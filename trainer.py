@@ -13,12 +13,12 @@ import warnings
 warnings.simplefilter("ignore", UserWarning)
 import torchvision
 import utils
-from model import focusLocNet
+from model import *
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
-from discriminator import NLayerDiscriminator
+from discriminator import *
 
 # In[2]:
 
@@ -64,13 +64,15 @@ class Trainer(object):
         self.use_cuda = config.use_cuda
         self.device = torch.device("cuda:0" if self.use_cuda else "cpu")
         self.ckpt_dir = config.ckpt_dir
+        if not os.path.exists(self.ckpt_dir):
+            os.makedirs(self.ckpt_dir)
         self.resume = config.resume
         self.model_name = 'rfc'
         self.use_tensorboard = config.use_tensorboard
         self.is_plot = config.is_plot
         
         if self.use_tensorboard:
-            tensorboard_dir = 'runs/rfc'#self.logs_dir + self.model_name
+            tensorboard_dir = config.logs_dir
             print('[*] Saving tensorboard logs to {}'.format(tensorboard_dir))
             if not os.path.exists(tensorboard_dir):
                 os.makedirs(tensorboard_dir)
@@ -78,6 +80,8 @@ class Trainer(object):
         
         self.std = config.std
         self.model = focusLocNet(self.std).to(self.device)
+        self.RandomPolicy = RandomPolicy()
+        self.CentralPolicy = CentralPolicy()
         
         self.start_epoch = 0
         self.epochs = config.epochs
@@ -85,7 +89,7 @@ class Trainer(object):
         self.seq = config.seq
         self.lr = config.init_lr
         self.criterion = nn.BCEWithLogitsLoss()
-        self.D = NLayerDiscriminator().to(self.device)
+        self.D = init_net(NLayerDiscriminator().to(self.device))
         self.optimizer= optim.Adam(filter(lambda p: p.requires_grad, self.model.parameters()), lr=self.lr)
         self.optimizerD = optim.Adam(filter(lambda p: p.requires_grad, self.D.parameters()), lr=self.lr)
 
@@ -142,7 +146,17 @@ class Trainer(object):
         This is used by train() and should not be called manually.
         """
         batch_time = AverageMeter()
+        losses_b = AverageMeter()
+        losses_r = AverageMeter()
+        losses_g = AverageMeter()
+        losses_d = AverageMeter()
         losses = AverageMeter()
+        Rs = AverageMeter()
+        Ras = AverageMeter()
+        Rs_model = AverageMeter()
+        Rs_random = AverageMeter()
+        Rs_central = AverageMeter()
+        Rs_i = AverageMeter()
         tic = time.time()
         
         with tqdm(total=self.num_train) as pbar:
@@ -158,6 +172,8 @@ class Trainer(object):
                 # data shape: y_train (B, Seq, C, H, W)
                 log_pi = []
                 J_est = []
+                J_est_random = []
+                J_est_central = []
                 I_est = []
                 loc = []
                 l = torch.rand(self.batch_size, 2, device=self.device)*2-1
@@ -166,28 +182,42 @@ class Trainer(object):
 
                 I =  utils.getDefocuesImage(l, y_train[:, 0, ...], dpt[:, 0, ...])
                 J_prev = I#y_train[:, 0, ...] ## set J_prev to be first frame of the image sequences
+                J_prev_random = I
+                J_prev_central = I
                 J_est.append(J_prev)
+                J_est_random.append(J_prev_random)
+                J_est_central.append(J_prev_central)
                 I_est.append(I)
                 reward = []
 
                 for t in range(y_train.size()[1]-1):
                     # for each time step: estimate, capture and fuse.
                     mu, l, b, p = self.model(I, l)
+                    l_random = self.RandomPolicy(l)
+                    l_central = self.CentralPolicy(l)
                     log_pi.append(p)
                     I = utils.getDefocuesImage(l, y_train[:, t+1, ...], dpt[:, t+1, ...])
+                    I_random = utils.getDefocuesImage(l_random, y_train[:, t+1, ...], dpt[:, t+1, ...])
+                    I_central = utils.getDefocuesImage(l_central, y_train[:, t+1, ...], dpt[:, t+1, ...])
                     J_prev = utils.fuseTwoImages(I, J_prev)
+                    J_prev_random = utils.fuseTwoImages(I_random, J_prev_random)
+                    J_prev_central = utils.fuseTwoImages(I_central, J_prev_central)
                     J_est.append(J_prev)
+                    J_est_random.append(J_prev_random)
+                    J_est_central.append(J_prev_central)
                     I_est.append(I)
                     loc.append(l)
                     baselines.append(b)
                     
-                    r = utils.reconsLoss(J_prev, y_train[:, t+1, ...])
+                    r = -utils.reconsLoss(J_prev, y_train[:, t+1, ...])
                     reward.append(r)
                     for tt in range(t):
-                        reward[tt] += 0.9 ** (t - tt) * r
+                        reward[tt] += (0.9 ** (t - tt)) * r
                
 
                 J_est = torch.stack(J_est, dim = 1)
+                J_est_random = torch.stack(J_est_random, dim = 1)
+                J_est_central = torch.stack(J_est_central, dim = 1)
                 I_est = torch.stack(I_est, dim = 1)
 
                 
@@ -201,7 +231,18 @@ class Trainer(object):
     
 #                 R = -utils.reconsLoss(J_est, y_train)
 #                 R = R.unsqueeze(1).repeat(1, y_train.size()[1]-1)
-
+                R_model = -utils.reconsLoss(J_est[:, 1:], y_train[:, 1:])
+                R_model = torch.mean(R_model, dim = 0)
+                R_random = -utils.reconsLoss(J_est_random[:, 1:], y_train[:, 1:])
+                R_random = torch.mean(R_random, dim = 0)
+                R_central = -utils.reconsLoss(J_est_central[:, 1:], y_train[:, 1:])
+                R_central = torch.mean(R_central, dim = 0)
+                R_i = -utils.reconsLoss(I_est[:, 1:], y_train[:, 1:])
+                R_i = torch.mean(R_i, dim = 0)
+                Rs_model.update(R_model.item(),y_train.size()[0])
+                Rs_random.update(R_random.item(),y_train.size()[0])
+                Rs_central.update(R_central.item(),y_train.size()[0])
+                Rs_i.update(R_i.item(),y_train.size()[0])
                 
                 loss_baseline = F.mse_loss(baselines, R)
                 
@@ -242,7 +283,13 @@ class Trainer(object):
                 loss.backward()
                 self.optimizer.step()
 
-                losses.update(loss.item(), y_train.size()[0]-1)
+                losses.update(loss.item(), y_train.size()[0])
+                losses_b.update(loss_baseline.item(), y_train.size()[0])
+                losses_r.update(loss_reinforce.item(), y_train.size()[0])
+                losses_g.update(loss_GAN.item(), y_train.size()[0])
+                losses_d.update(errD.item(), y_train.size()[0])
+                Rs.update(torch.mean(torch.sum(R, dim = 1),dim = 0).item(),y_train.size()[0])
+                Ras.update(torch.mean(torch.sum(adjusted_reward, dim = 1),dim = 0).item(),y_train.size()[0])
 
                 # measure elapsed time
                 toc = time.time()
@@ -259,11 +306,11 @@ class Trainer(object):
 
                 if self.use_tensorboard:
                     iteration = epoch*len(self.train_loader) + i
-                    self.writer.add_scalar('train_loss', losses.avg, iteration)
-                    self.writer.add_scalars('rw', {'rw':torch.mean(torch.sum(R, dim = 1),dim = 0).item(),
-                                                       'rw_a':torch.mean(torch.sum(adjusted_reward, dim = 1),dim = 0).item()},
-                                                       iteration)
-                    self.writer.add_scalars('GAN', {'G_loss':loss_GAN.item(), 'D_loss': errD.item()}, iteration)
+                    #self.writer.add_scalar('total_loss', losses.avg, iteration)
+                    self.writer.add_scalars('losses', {'loss_b':losses_b.avg, 'loss_r':losses_r.avg, 'total_loss': losses.avg}, iteration)
+                    #self.writer.add_scalars('rw', {'rw':Rs.avg, 'rw_a': Ras.avg}, iteration)
+                    self.writer.add_scalars('loss_gan', {'G':losses_g.avg, 'D': losses_d.avg}, iteration)
+                    self.writer.add_scalars('rw_comp', {'model':Rs_model.avg, 'random': Rs_random.avg, 'central': Rs_central.avg, 'i': Rs_i.avg}, iteration)
                     
             if self.use_tensorboard and self.is_plot:
                 I_est[0] = utils.color_region(I_est[0], loc[0])
@@ -279,77 +326,77 @@ class Trainer(object):
             return losses.avg
     
     
-    def test(self):
+#     def test(self):
         
-        self.load_checkpoint()
-        self.model.eval()
-        losses = AverageMeter()
+#         self.load_checkpoint()
+#         self.model.eval()
+#         losses = AverageMeter()
         
-        with torch.no_grad():
-            for i, (y_test, dpt) in enumerate(self.test_loader):
+#         with torch.no_grad():
+#             for i, (y_test, dpt) in enumerate(self.test_loader):
 
-                y_test = y_test.to(self.device)
-                dpt = dpt.to(self.device)
+#                 y_test = y_test.to(self.device)
+#                 dpt = dpt.to(self.device)
 
-                self.batch_size = y_test.size()[0]
-                self.seq = y_test.size()[1]
-                self.model.init_hidden()
+#                 self.batch_size = y_test.size()[0]
+#                 self.seq = y_test.size()[1]
+#                 self.model.init_hidden()
 
-                # data shape: y_train (B, Seq, C, H, W)
-                log_pi = []
-                J_est = []
-                I_est = []
-                loc = []
-                l = torch.rand(self.batch_size, 2, device=self.device)*2-1
-                loc.append(l)
-                baselines = []
+#                 # data shape: y_train (B, Seq, C, H, W)
+#                 log_pi = []
+#                 J_est = []
+#                 I_est = []
+#                 loc = []
+#                 l = torch.rand(self.batch_size, 2, device=self.device)*2-1
+#                 loc.append(l)
+#                 baselines = []
 
-                I =  utils.getDefocuesImage(l, y_test[:, 0, ...], dpt[:, 0, ...])
-                J_prev = I#y_train[:, 0, ...] ## set J_prev to be first frame of the image sequences
-                J_est.append(J_prev)
-                I_est.append(I)
-                reward = []
+#                 I =  utils.getDefocuesImage(l, y_test[:, 0, ...], dpt[:, 0, ...])
+#                 J_prev = I#y_train[:, 0, ...] ## set J_prev to be first frame of the image sequences
+#                 J_est.append(J_prev)
+#                 I_est.append(I)
+#                 reward = []
 
-                for t in range(y_train.size()[1]-1):
-                    # for each time step: estimate, capture and fuse.
-                    mu, l, b, p = self.model(I, l)
-                    log_pi.append(p)
-                    I = utils.getDefocuesImage(l, y_test[:, t+1, ...], dpt[:, t+1, ...])
-                    J_prev = utils.fuseTwoImages(I, J_prev)
-                    J_est.append(J_prev)
-                    I_est.append(I)
-                    loc.append(l)
-                    baselines.append(b)
+#                 for t in range(y_train.size()[1]-1):
+#                     # for each time step: estimate, capture and fuse.
+#                     mu, l, b, p = self.model(I, l)
+#                     log_pi.append(p)
+#                     I = utils.getDefocuesImage(l, y_test[:, t+1, ...], dpt[:, t+1, ...])
+#                     J_prev = utils.fuseTwoImages(I, J_prev)
+#                     J_est.append(J_prev)
+#                     I_est.append(I)
+#                     loc.append(l)
+#                     baselines.append(b)
                     
-#                     r = utils.reconsLoss(J_prev, y_test[:, t+1, ...])
-#                     reward.append(r)
-#                     for tt in range(t):
-#                         reward[tt] += 0.9 ** (t - tt) * r
+# #                     r = utils.reconsLoss(J_prev, y_test[:, t+1, ...])
+# #                     reward.append(r)
+# #                     for tt in range(t):
+# #                         reward[tt] += 0.9 ** (t - tt) * r
 
-                J_est = torch.stack(J_est, dim = 1)
-                I_est = torch.stack(I_est, dim = 1)
-                loc = torch.stack(loc, dim = 1)
+#                 J_est = torch.stack(J_est, dim = 1)
+#                 I_est = torch.stack(I_est, dim = 1)
+#                 loc = torch.stack(loc, dim = 1)
 
-                baselines = torch.stack(baselines).transpose(1, 0)
-                log_pi = torch.stack(log_pi).transpose(1, 0)
-#                 reward = torch.stack(reward).transpose(1, 0)
-#                 R = reward# * 100
+#                 baselines = torch.stack(baselines).transpose(1, 0)
+#                 log_pi = torch.stack(log_pi).transpose(1, 0)
+# #                 reward = torch.stack(reward).transpose(1, 0)
+# #                 R = reward# * 100
                 
-                R = -utils.reconsLoss(J_est, y_train)
-                R = R.unsqueeze(1).repeat(1, y_train.size()[1]-1)
+#                 R = -utils.reconsLoss(J_est, y_train)
+#                 R = R.unsqueeze(1).repeat(1, y_train.size()[1]-1)
                 
-                loss_baseline = F.mse_loss(baselines, R)
+#                 loss_baseline = F.mse_loss(baselines, R)
                 
-                adjusted_reward = R - baselines.detach()              
+#                 adjusted_reward = R - baselines.detach()              
 
-                ## Basic REINFORCE algorithm
-                loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
-                loss_reinforce = torch.mean(loss_reinforce, dim=0)
-                loss = loss_baseline + loss_reinforce
+#                 ## Basic REINFORCE algorithm
+#                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
+#                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
+#                 loss = loss_baseline + loss_reinforce
 
-                losses.update(loss.item(), y_test.size()[0])
+#                 losses.update(loss.item(), y_test.size()[0])
 
-            return losses.avg
+#             return losses.avg
     
     def save_checkpoint(self, state):
         """

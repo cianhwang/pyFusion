@@ -87,8 +87,8 @@ def reconsLoss(J_est, J_gt):
     lossList = []
 
     for i in range(J_gt.size()[0]):
-        lossList.append(torch.log10(4 / ((J_gt[i] - J_est[i])**2).mean()))
-#         lossList.append(F.mse_loss(J_gt[i], J_est[i]))
+#         lossList.append(2.5-torch.log10(4 / ((J_gt[i] - J_est[i])**2).mean()))
+        lossList.append(100.0* F.mse_loss(J_gt[i], J_est[i]))
     lossTensor = torch.stack(lossList)
     #lossTensor = pytorch_ssim.ssim(J_gt/2+0.5, J_est/2+0.5) #torch.stack(lossList)
     return lossTensor

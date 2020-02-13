@@ -1,4 +1,5 @@
 import argparse
+import time
 
 arg_lists = []
 parser = argparse.ArgumentParser(description='RFC')
@@ -18,7 +19,7 @@ def add_argument_group(name):
 data_arg = add_argument_group('Data Params')
 data_arg.add_argument('--batch_size', type=int, default=4,
                       help='# of images in each batch of data')
-data_arg.add_argument('--seq', type=int, default=5,
+data_arg.add_argument('--seq', type=int, default=4,
                       help='#seq of images in each batch of data')
 data_arg.add_argument('--std', type=int, default=0.17,
                       help='model distr std')
@@ -38,9 +39,9 @@ misc_arg.add_argument('--use_cuda', type=str2bool, default=True,
                       help="Whether to run on the GPU")
 misc_arg.add_argument('--random_seed', type=int, default=38,
                       help='Seed to ensure reproducibility')
-misc_arg.add_argument('--ckpt_dir', type=str, default='./ckpt',
+misc_arg.add_argument('--ckpt_dir', type=str, default='./ckpt/'+time.strftime("%m%d%y_%H_%M"),
                       help='Directory in which to save model checkpoints')
-misc_arg.add_argument('--logs_dir', type=str, default='./runs/rfc',
+misc_arg.add_argument('--logs_dir', type=str, default='./runs/'+time.strftime("%m%d%y_%H_%M"),
                       help='Directory in which Tensorboard logs wil be stored')
 misc_arg.add_argument('--use_tensorboard', type=str2bool, default=True,
                       help='Whether to use tensorboard for visualization')

@@ -90,6 +90,17 @@ class SeqRandomHorizontalFlip(object):
                 img_seq[i] = TF.hflip(img)
         return img_seq
     
+class SeqRandomVerticalFlip(object):
+    def __init__(self, p = 0.5):
+        self.p = p
+
+    def __call__(self, img_seq):
+        randnum = random.random()
+        for i, img in enumerate(img_seq):
+            if randnum < self.p:
+                img_seq[i] = TF.vflip(img)
+        return img_seq
+    
 class SeqRandomCrop(object):
     def __init__(self, size):
         if isinstance(size, numbers.Number):
@@ -140,6 +151,7 @@ class DAVISImageFolder(data.Dataset):
     def __init__(self, list_path, dpt_list_path, seq, transform = transforms.Compose([
                                 SeqToPILImage(),
                                 SeqRandomHorizontalFlip(),
+                                SeqRandomVerticalFlip(),
                                 SeqRandomCrop((448, 832)),
                                 SeqResize((64, 128)),
                                 SeqToTensor()])):
@@ -154,7 +166,8 @@ class DAVISImageFolder(data.Dataset):
 
         self.seq = seq
         self.transform = transform
-
+        self.offset = 2
+        
     def load_imgs(self, img_path):
         img = imread(img_path)
 #         img = np.float32(img)/127.5-1
@@ -184,16 +197,18 @@ class DAVISImageFolder(data.Dataset):
 #             return imgSeq, dptSeq
         
         for i in range(self.seq):
-            h5_path = self.img_list[min(index+i*4, len(self.img_list)-1)].rstrip()
-            img = self.load_imgs(h5_path)
-#             img = self.transform(img)
-#             img = img * 2 - 1
-#             img = torch.clamp(img, -1.0, 1.0)
+            h5_path = self.img_list[index].rstrip()
+            dpt_h5_path = self.dpt_list[index].rstrip()
+            
+            try:
+                h5_path_offset = self.replace_num_in_string(h5_path, i*self.offset)
+                dpt_h5_path_offset = self.replace_num_in_string(dpt_h5_path, i*self.offset)
+                img = self.load_imgs(h5_path_offset)
+                dpt = self.load_dpt(dpt_h5_path_offset)
+            except FileNotFoundError:
+                img = self.load_imgs(h5_path)
+                dpt = self.load_dpt(dpt_h5_path)
             imgSeq.append(img)
-        
-            dpt_h5_path = self.dpt_list[min(index+i*4, len(self.img_list)-1)].rstrip()
-            dpt = self.load_dpt(dpt_h5_path)
-#             dpt = self.transform(dpt)
             dptSeq.append(dpt)
             
 #         imgSeq = torch.stack(imgSeq)
@@ -206,6 +221,22 @@ class DAVISImageFolder(data.Dataset):
 
     def __len__(self):
         return len(self.img_list)
+
+    def replace_num_in_string(self, string, offset):
+        if offset == 0:
+            return string
+        regex = r"00[0-9][0-9][0-9]"
+        matches = re.search(regex, string)
+        try:
+            matches.group()
+        except:
+            print(string)
+        subst = "{:05d}".format(int(matches.group()) + offset)
+        result = re.sub(regex, subst, string, 0, re.MULTILINE)
+        return result
+
+        
+        
     
     
 class DAVISDataLoader():
@@ -213,7 +244,7 @@ class DAVISDataLoader():
         dataset = DAVISImageFolder(list_path=list_path, dpt_list_path=dpt_list_path, seq = seq)
         self.data_loader = torch.utils.data.DataLoader(dataset,
                                                        batch_size=_batch_size,
-                                                       shuffle=False,
+                                                       shuffle=True,
                                                        num_workers=int(1))
         self.dataset = dataset
 
@@ -240,9 +271,9 @@ def imshow(img):
     plt.imshow(np.transpose(npimg, (1, 2, 0)))
     plt.show()
 
-def load_davis_dataset(seq=3, batch_size=1):
-    video_list = "../datasets/DAVIS/test_davis_video_sublist.txt"
-    dpt_list = "../datasets/DAVIS/test_davis_dpt_sublist.txt"
+def load_davis_dataset(seq=3, batch_size = 1):
+    video_list = "../datasets/DAVIS/test_davis_video_list.txt"
+    dpt_list = "../datasets/DAVIS/test_davis_dpt_list.txt"
     video_data_loader = DAVISDataLoader(video_list, dpt_list, seq, batch_size)
     video_dataset = video_data_loader.load_data()
     return video_dataset
@@ -255,7 +286,7 @@ if __name__ == '__main__':
         print(imgSeq.shape, imgSeq.max(), imgSeq.min())
         dptSeq = data[1]
         print(dptSeq.shape, dptSeq.max(), dptSeq.min())
-        imshow(torchvision.utils.make_grid(imgSeq[0]))
-        imshow(torchvision.utils.make_grid(dptSeq[0]/5))
-        break
+#        imshow(torchvision.utils.make_grid(imgSeq[0]))
+#        imshow(torchvision.utils.make_grid(dptSeq[0]/5))
+#        break
 

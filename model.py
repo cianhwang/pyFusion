@@ -125,3 +125,22 @@ class convBlock(nn.Module):
             x = self.bn1(x)
         return x            
 
+class RandomPolicy(object):
+    def __init__(self):
+        pass
+    def __call__(self, loc):
+        loc_n = torch.rand_like(loc) * 2 - 1
+        if loc_n.is_cuda:
+            loc_n = loc_n.cuda()
+        return loc_n
+        
+class CentralPolicy(object):
+    def __init__(self):
+        pass
+    def __call__(self, loc):
+        loc_n = torch.zeros_like(loc)
+        if loc_n.is_cuda:
+            loc_n = loc_n.cuda()
+        return loc_n
+
+
