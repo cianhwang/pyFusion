@@ -47,12 +47,20 @@ class focusLocNet(nn.Module):
         self.fc0 = nn.Linear(2, 16)
         self.fc1 = nn.Linear(768, 256)
         self.fc2 = nn.Linear(256+16, 256)
+        self.bn2 = nn.BatchNorm1d(256)
         self.fc3 = nn.Linear(256, 256)
+        self.bn3 = nn.BatchNorm1d(256)
         self.lstm = nn.LSTMCell(256, 128)
 
         self.fc4 = nn.Linear(128, 128)
-        self.fc5 = nn.Linear(128, 2) 
+        self.bn4 = nn.BatchNorm1d(128)
+        self.fc5_0 = nn.Linear(128, 128)
+        self.bn5_0 = nn.BatchNorm1d(128)
+        self.fc5 = nn.Linear(128, 2)
+
         
+        self.fc6_0 = nn.Linear(128, 128)
+        self.bn6_0 = nn.BatchNorm1d(128)
         self.fc6 = nn.Linear(128, 1)
         
         self.init_hidden()
@@ -73,8 +81,8 @@ class focusLocNet(nn.Module):
         x = F.relu(self.fc1(x))
         y = F.relu(self.fc0(l_prev))
         x = torch.cat((x, y), dim = 1)
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
+        x = F.relu(self.bn2(self.fc2(x)))
+        x = F.relu(self.bn3(self.fc3(x)))
         
         if self.lstm_hidden is None:
             self.lstm_hidden = self.lstm(x)
@@ -83,10 +91,13 @@ class focusLocNet(nn.Module):
 
 #             self.h, self.c = self.lstm(x, (self.h, self.c))
         x = F.relu(self.lstm_hidden[0])
-        b = self.fc6(x.detach()).squeeze(1)
+    
+        b = F.relu(self.bn6_0(self.fc6_0(x.detach())))
+        b = self.fc6(b).squeeze(1)
 #         x = F.leaky_relu(self.fc1(x))
 #         x = F.relu(self.fc2(x))
-        x = F.relu(self.fc4(x))
+        x = F.relu(self.bn4(self.fc4(x)))
+        x = F.relu(self.bn5_0(self.fc5_0(x)))
         mu = torch.tanh(self.fc5(x))
         
         noise = torch.zeros_like(mu)
@@ -122,7 +133,7 @@ class convBlock(nn.Module):
             x = self.bn1(x)
 
         if self.activation is not None:
-            x = self.activation(x)        
+            x = self.activation(x)
 
         return x            
 
