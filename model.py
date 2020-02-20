@@ -117,12 +117,13 @@ class convBlock(nn.Module):
 
     def forward(self, x):
         x = self.conv1(x)
+                
+        if self.isBn:
+            x = self.bn1(x)
 
         if self.activation is not None:
             x = self.activation(x)        
-            
-        if self.isBn:
-            x = self.bn1(x)
+
         return x            
 
 class RandomPolicy(object):
