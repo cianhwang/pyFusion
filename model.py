@@ -50,7 +50,7 @@ class focusLocNet(nn.Module):
         self.bn2 = nn.BatchNorm1d(256)
         self.fc3 = nn.Linear(256, 256)
         self.bn3 = nn.BatchNorm1d(256)
-        self.lstm = nn.LSTMCell(256, 128)
+        self.lstm = nn.LSTM(input_size=256, hidden_size=128, num_layers=1)
 
         self.fc4 = nn.Linear(128, 128)
         self.bn4 = nn.BatchNorm1d(128)
@@ -70,6 +70,8 @@ class focusLocNet(nn.Module):
         return
         
     def forward(self, x, l_prev):
+        batch_size = x.size(0)
+        
         x = self.block1(x)
         x = self.block2(x) 
         x = self.block3(x) 
@@ -77,7 +79,7 @@ class focusLocNet(nn.Module):
 #         x = self.block5(x) 
 #         x = self.block6(x)
         
-        x = x.view(x.size()[0], -1)
+        x = x.view(batch_size, -1)
         x = F.relu(self.fc1(x))
         y = F.relu(self.fc0(l_prev))
         x = torch.cat((x, y), dim = 1)
@@ -85,12 +87,12 @@ class focusLocNet(nn.Module):
         x = F.relu(self.bn3(self.fc3(x)))
         
         if self.lstm_hidden is None:
-            self.lstm_hidden = self.lstm(x)
+            x, self.lstm_hidden = self.lstm(x.view(1, *x.size()))
         else:
-            self.lstm_hidden = self.lstm(x, self.lstm_hidden)
+            x, self.lstm_hidden = self.lstm(x.view(1, *x.size()), self.lstm_hidden)
 
 #             self.h, self.c = self.lstm(x, (self.h, self.c))
-        x = F.relu(self.lstm_hidden[0])
+        x = self.lstm_hidden[0].view(batch_size, -1)
     
         b = F.relu(self.bn6_0(self.fc6_0(x.detach())))
         b = self.fc6(b).squeeze(1)
