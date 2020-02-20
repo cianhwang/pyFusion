@@ -88,10 +88,14 @@ class Trainer(object):
         self.batch_size = config.batch_size
         self.seq = config.seq
         self.lr = config.init_lr
-        self.criterion = nn.BCEWithLogitsLoss()
-        self.D = init_net(NLayerDiscriminator().to(self.device))
         self.optimizer= optim.Adam(filter(lambda p: p.requires_grad, self.model.parameters()), lr=self.lr)
-        self.optimizerD = optim.Adam(filter(lambda p: p.requires_grad, self.D.parameters()), lr=self.lr)
+        
+        self.use_gan = config.use_gan
+        if self.use_gan:
+            self.criterion = nn.BCEWithLogitsLoss()
+            self.D = init_net(NLayerDiscriminator().to(self.device))
+            self.lr_gan = config.init_lr_gan
+            self.optimizerD = optim.Adam(filter(lambda p: p.requires_grad, self.D.parameters()), lr=self.lr_gan)
 
   
 
@@ -154,7 +158,7 @@ class Trainer(object):
         Rs = AverageMeter()
         Ras = AverageMeter()
         Rs_model = AverageMeter()
-        Rs_random = AverageMeter()
+        #Rs_random = AverageMeter()
         Rs_central = AverageMeter()
         Rs_i = AverageMeter()
         tic = time.time()
@@ -172,7 +176,7 @@ class Trainer(object):
                 # data shape: y_train (B, Seq, C, H, W)
                 log_pi = []
                 J_est = []
-                J_est_random = []
+                #J_est_random = []
                 J_est_central = []
                 I_est = []
                 loc = []
@@ -182,10 +186,10 @@ class Trainer(object):
 
                 I =  utils.getDefocuesImage(l, y_train[:, 0, ...], dpt[:, 0, ...])
                 J_prev = I#y_train[:, 0, ...] ## set J_prev to be first frame of the image sequences
-                J_prev_random = I
+                #J_prev_random = I
                 J_prev_central = I
                 J_est.append(J_prev)
-                J_est_random.append(J_prev_random)
+                #J_est_random.append(J_prev_random)
                 J_est_central.append(J_prev_central)
                 I_est.append(I)
                 reward = []
@@ -193,17 +197,17 @@ class Trainer(object):
                 for t in range(y_train.size()[1]-1):
                     # for each time step: estimate, capture and fuse.
                     mu, l, b, p = self.model(I, l)
-                    l_random = self.RandomPolicy(l)
+                    #l_random = self.RandomPolicy(l)
                     l_central = self.CentralPolicy(l)
                     log_pi.append(p)
                     I = utils.getDefocuesImage(l, y_train[:, t+1, ...], dpt[:, t+1, ...])
-                    I_random = utils.getDefocuesImage(l_random, y_train[:, t+1, ...], dpt[:, t+1, ...])
+                    #I_random = utils.getDefocuesImage(l_random, y_train[:, t+1, ...], dpt[:, t+1, ...])
                     I_central = utils.getDefocuesImage(l_central, y_train[:, t+1, ...], dpt[:, t+1, ...])
                     J_prev = utils.fuseTwoImages(I, J_prev)
-                    J_prev_random = utils.fuseTwoImages(I_random, J_prev_random)
+                    #J_prev_random = utils.fuseTwoImages(I_random, J_prev_random)
                     J_prev_central = utils.fuseTwoImages(I_central, J_prev_central)
                     J_est.append(J_prev)
-                    J_est_random.append(J_prev_random)
+                    #J_est_random.append(J_prev_random)
                     J_est_central.append(J_prev_central)
                     I_est.append(I)
                     loc.append(l)
@@ -216,7 +220,7 @@ class Trainer(object):
                
 
                 J_est = torch.stack(J_est, dim = 1)
-                J_est_random = torch.stack(J_est_random, dim = 1)
+                #J_est_random = torch.stack(J_est_random, dim = 1)
                 J_est_central = torch.stack(J_est_central, dim = 1)
                 I_est = torch.stack(I_est, dim = 1)
 
@@ -233,14 +237,14 @@ class Trainer(object):
 #                 R = R.unsqueeze(1).repeat(1, y_train.size()[1]-1)
                 R_model = -utils.reconsLoss(J_est[:, 1:], y_train[:, 1:])
                 R_model = torch.mean(R_model, dim = 0)
-                R_random = -utils.reconsLoss(J_est_random[:, 1:], y_train[:, 1:])
-                R_random = torch.mean(R_random, dim = 0)
+                #R_random = -utils.reconsLoss(J_est_random[:, 1:], y_train[:, 1:])
+                #R_random = torch.mean(R_random, dim = 0)
                 R_central = -utils.reconsLoss(J_est_central[:, 1:], y_train[:, 1:])
                 R_central = torch.mean(R_central, dim = 0)
                 R_i = -utils.reconsLoss(I_est[:, 1:], y_train[:, 1:])
                 R_i = torch.mean(R_i, dim = 0)
                 Rs_model.update(R_model.item(),y_train.size()[0])
-                Rs_random.update(R_random.item(),y_train.size()[0])
+                #Rs_random.update(R_random.item(),y_train.size()[0])
                 Rs_central.update(R_central.item(),y_train.size()[0])
                 Rs_i.update(R_i.item(),y_train.size()[0])
                 
@@ -251,33 +255,38 @@ class Trainer(object):
                 ## Basic REINFORCE algorithm
                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
-                
+
+                loss = loss_baseline + loss_reinforce
                 
                 ## ADVERSARIAL LOSS
                 ## ADDED BY QIAN, 02/05/2020
                 ##------------------D------------------
-                self.D.zero_grad()
-                real = y_train[:, 1:].clone()
-                real = (real).view(-1, *real.shape[2:])
-                pred_labels = self.D(real)
-                real_labels = torch.ones_like(pred_labels).to(self.device)
-                errD_real = self.criterion(pred_labels, real_labels) 
-                
-                fake = J_est[:, 1:].detach().clone()
-                fake = (fake).view(-1, *fake.shape[2:])
-                pred_labels = self.D(fake.detach())                
-                fake_labels = torch.zeros_like(pred_labels).to(self.device)
-                errD_fake = self.criterion(pred_labels, fake_labels)
-                errD = errD_real + errD_fake
-                errD.backward()
-                self.optimizerD.step()
-                ##------------------G------------------
-                pred_labels = self.D(fake)
-                real_labels = torch.ones_like(pred_labels).to(self.device)
-                loss_GAN = self.criterion(pred_labels, real_labels)
-                
-                
-                loss = loss_baseline + loss_reinforce + loss_GAN
+                if self.use_gan:
+                    self.D.zero_grad()
+                    real = y_train[:, 1:].clone()
+                    real = (real).view(-1, *real.shape[2:])
+                    pred_labels = self.D(real)
+                    real_labels = torch.ones_like(pred_labels).to(self.device)
+                    errD_real = self.criterion(pred_labels, real_labels) 
+
+                    fake = J_est[:, 1:].detach().clone()
+                    fake = (fake).view(-1, *fake.shape[2:])
+                    pred_labels = self.D(fake.detach())                
+                    fake_labels = torch.zeros_like(pred_labels).to(self.device)
+                    errD_fake = self.criterion(pred_labels, fake_labels)
+                    errD = errD_real + errD_fake
+                    errD.backward()
+                    self.optimizerD.step()
+                    ##------------------G------------------
+                    pred_labels = self.D(fake)
+                    real_labels = torch.ones_like(pred_labels).to(self.device)
+                    loss_GAN = self.criterion(pred_labels, real_labels)
+
+                    losses_g.update(loss_GAN.item(), y_train.size()[0])
+                    losses_d.update(errD.item(), y_train.size()[0])
+                    
+                    loss += loss_GAN
+
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -286,8 +295,8 @@ class Trainer(object):
                 losses.update(loss.item(), y_train.size()[0])
                 losses_b.update(loss_baseline.item(), y_train.size()[0])
                 losses_r.update(loss_reinforce.item(), y_train.size()[0])
-                losses_g.update(loss_GAN.item(), y_train.size()[0])
-                losses_d.update(errD.item(), y_train.size()[0])
+                
+
                 Rs.update(torch.mean(torch.sum(R, dim = 1),dim = 0).item(),y_train.size()[0])
                 Ras.update(torch.mean(torch.sum(adjusted_reward, dim = 1),dim = 0).item(),y_train.size()[0])
 
@@ -309,8 +318,9 @@ class Trainer(object):
                     #self.writer.add_scalar('total_loss', losses.avg, iteration)
                     self.writer.add_scalars('losses', {'loss_b':losses_b.avg, 'loss_r':losses_r.avg, 'total_loss': losses.avg}, iteration)
                     #self.writer.add_scalars('rw', {'rw':Rs.avg, 'rw_a': Ras.avg}, iteration)
-                    self.writer.add_scalars('loss_gan', {'G':losses_g.avg, 'D': losses_d.avg}, iteration)
-                    self.writer.add_scalars('rw_comp', {'model':Rs_model.avg, 'random': Rs_random.avg, 'central': Rs_central.avg, 'i': Rs_i.avg}, iteration)
+                    if self.use_gan:
+                        self.writer.add_scalars('loss_gan', {'G':losses_g.avg, 'D': losses_d.avg}, iteration)
+                    self.writer.add_scalars('rw_comp', {'model':Rs_model.avg, 'central': Rs_central.avg, 'i': Rs_i.avg}, iteration)
                     
             if self.use_tensorboard and self.is_plot:
                 I_est[0] = utils.color_region(I_est[0], loc[0])

@@ -23,6 +23,11 @@ data_arg.add_argument('--seq', type=int, default=4,
                       help='#seq of images in each batch of data')
 data_arg.add_argument('--std', type=int, default=0.17,
                       help='model distr std')
+data_arg.add_argument('--video_path', type=str, default="../datasets/DAVIS/test_davis_video_sublist.txt",
+                      help='Directory in which to load frames')
+data_arg.add_argument('--depth_path', type=str, default="../datasets/DAVIS/test_davis_dpt_sublist.txt",
+                      help='Directory in which to load depth maps w.r.t. frames')
+
 
 # training params
 train_arg = add_argument_group('Training Params')
@@ -32,6 +37,10 @@ train_arg.add_argument('--epochs', type=int, default=100,
                        help='# of epochs to train for')
 train_arg.add_argument('--init_lr', type=float, default=3e-4,
                        help='Initial learning rate value')
+train_arg.add_argument('--use_gan', type=str2bool, default=False,
+                       help='Whether to use GAN network/loss during training')
+train_arg.add_argument('--init_lr_gan', type=float, default=1e-4,
+                       help='Initial learning rate value for Discriminator if GAN is utilized')
 
 # other params
 misc_arg = add_argument_group('Misc.')
