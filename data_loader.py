@@ -271,7 +271,7 @@ def imshow(img):
     plt.imshow(np.transpose(npimg, (1, 2, 0)))
     plt.show()
 
-def load_davis_dataset(video_path = "../datasets/DAVIS/test_davis_video_sublist.txt", depth_path = "../datasets/DAVIS/test_davis_dpt_sublist.txt", seq=3, batch_size = 1):
+def load_davis_dataset(video_path, depth_path, seq=3, batch_size = 1):
     video_list = video_path
     dpt_list = depth_path
     video_data_loader = DAVISDataLoader(video_list, dpt_list, seq, batch_size)

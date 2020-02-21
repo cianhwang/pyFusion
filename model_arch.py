@@ -16,8 +16,25 @@ from torch.distributions import Normal
 
 
 class focusLocNet(nn.Module):
+    '''
+    Description: analyze estimated ^J_{t-1} to get next focus position sampled from Gaussian distr.
     
-    def __init__(self, std, hidden_size):
+    input: 
+        x: (B, 3, 512, 896) image tensor
+            range [-1, 1]
+    output: 
+        mu: (B, 1) mean of gaussian distribution
+            range [-1, 1]
+        pos: (B, 1) normalized focus position
+            range [-1, 1]
+        log_pi: logarithmatic probabilty of choosing pos ~ Gauss(mu, self.std)
+        
+    arguments:
+        std: std of gaussian distribution
+            
+    '''
+    
+    def __init__(self, std = 0.17):
         super(focusLocNet, self).__init__()
         
         self.std = std
@@ -29,49 +46,46 @@ class focusLocNet(nn.Module):
         self.fc0 = nn.Linear(2, 16)
         self.fc1 = nn.Linear(768, 256)
         self.fc2 = nn.Linear(256+16, 256)
-        self.bn2 = nn.BatchNorm1d(256)
         self.fc3 = nn.Linear(256, 256)
-        self.bn3 = nn.BatchNorm1d(256)
-        self.lstm = nn.LSTM(input_size=256, hidden_size=128, num_layers=1)
+        self.lstm = nn.LSTMCell(256, 128)
 
         self.fc4 = nn.Linear(128, 128)
-        self.bn4 = nn.BatchNorm1d(128)
-        self.fc5_0 = nn.Linear(128, 128)
-        self.bn5_0 = nn.BatchNorm1d(128)
-        self.fc5 = nn.Linear(128, 2)
-
+        self.fc5 = nn.Linear(128, 2) 
         
-        self.fc6_0 = nn.Linear(128, 128)
-        self.bn6_0 = nn.BatchNorm1d(128)
         self.fc6 = nn.Linear(128, 1)
         
-        self.hidden_size = hidden_size
+        self.init_hidden()
         
-    def forward(self, x, l_prev, h_prev):
-        batch_size = x.size(0)
+    def init_hidden(self):
+        self.lstm_hidden = None
+        return
         
+    def forward(self, x, l_prev):
         x = self.block1(x)
         x = self.block2(x) 
         x = self.block3(x) 
         x = self.block4(x) 
+#         x = self.block5(x) 
+#         x = self.block6(x)
         
-        x = x.view(batch_size, -1)
+        x = x.view(x.size()[0], -1)
         x = F.relu(self.fc1(x))
         y = F.relu(self.fc0(l_prev))
         x = torch.cat((x, y), dim = 1)
-        x = F.relu(self.bn2(self.fc2(x)))
-        x = F.relu(self.bn3(self.fc3(x)))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
         
-        x, hidden = self.lstm(x.view(1, *x.size()), h_prev)
+        if self.lstm_hidden is None:
+            self.lstm_hidden = self.lstm(x)
+        else:
+            self.lstm_hidden = self.lstm(x, self.lstm_hidden)
 
-        x = hidden[0].view(batch_size, -1)
-        
-        b = x.detach()
-        b = F.relu(self.bn6_0(self.fc6_0(b)))
-        b = self.fc6(b).squeeze(1)
-
-        x = F.relu(self.bn4(self.fc4(x)))
-        x = F.relu(self.bn5_0(self.fc5_0(x)))
+#             self.h, self.c = self.lstm(x, (self.h, self.c))
+        x = F.relu(self.lstm_hidden[0])
+        b = self.fc6(x.detach()).squeeze(1)
+#         x = F.leaky_relu(self.fc1(x))
+#         x = F.relu(self.fc2(x))
+        x = F.relu(self.fc4(x))
         mu = torch.tanh(self.fc5(x))
         
         noise = torch.zeros_like(mu)
@@ -84,7 +98,7 @@ class focusLocNet(nn.Module):
         log_pi = Normal(mu, self.std).log_prob(pos)
         log_pi = torch.sum(log_pi, dim=1)
          
-        return hidden, mu, pos, b, log_pi
+        return mu, pos, b, log_pi
 
 class convBlock(nn.Module):
     '''
@@ -102,16 +116,14 @@ class convBlock(nn.Module):
 
     def forward(self, x):
         x = self.conv1(x)
-                
-        if self.isBn:
-            x = self.bn1(x)
 
         if self.activation is not None:
-            x = self.activation(x)
-
+            x = self.activation(x)        
+            
+        if self.isBn:
+            x = self.bn1(x)
         return x            
 
-    
 class RandomPolicy(object):
     def __init__(self):
         pass
@@ -120,8 +132,7 @@ class RandomPolicy(object):
         if loc_n.is_cuda:
             loc_n = loc_n.cuda()
         return loc_n
-
-    
+        
 class CentralPolicy(object):
     def __init__(self):
         pass
@@ -130,5 +141,3 @@ class CentralPolicy(object):
         if loc_n.is_cuda:
             loc_n = loc_n.cuda()
         return loc_n
-
-
