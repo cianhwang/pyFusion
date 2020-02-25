@@ -88,7 +88,7 @@ def reconsLoss(J_est, J_gt):
 
     for i in range(J_gt.size()[0]):
 #         lossList.append(2.5-torch.log10(4 / ((J_gt[i] - J_est[i])**2).mean()))
-        lossList.append(100.0* F.mse_loss(J_gt[i], J_est[i]))
+        lossList.append(F.mse_loss(J_gt[i], J_est[i]))
     lossTensor = torch.stack(lossList)
     #lossTensor = pytorch_ssim.ssim(J_gt/2+0.5, J_est/2+0.5) #torch.stack(lossList)
     return lossTensor
@@ -96,10 +96,11 @@ def reconsLoss(J_est, J_gt):
 def depth_from_region(depthmap, loc):
     
     H, W = depthmap.shape
-    x_l = int((loc[0]+1) * H / 2)
-    y_l = int((loc[1]+1) * W / 2)
-    x_r = int(min(H, x_l + min(H, W)//4))
-    y_r = int(min(W, y_l + min(H, W)//4))
+    window_size =  min(H, W)//4
+    x_l = int((loc[0]+1) * (H - window_size) / 2)
+    y_l = int((loc[1]+1) * (W - window_size) / 2)
+    x_r = int(min(H, x_l + window_size))
+    y_r = int(min(W, y_l + window_size))
     
     #print("fun_depth_from_region: ({}, {})".format(x_l, y_l))
     
@@ -111,14 +112,37 @@ def color_region(tensors, locs):
     
     for i in range(S):
         loc = locs[i]
-        x_l = int((loc[0]+1) * H / 2)
-        y_l = int((loc[1]+1) * W / 2)
-        x_r = int(min(H, x_l + min(H, W)//4))
-        y_r = int(min(W, y_l + min(H, W)//4))
+        window_size =  min(H, W)//4
+        x_l = int((loc[0]+1) * (H - window_size) / 2)
+        y_l = int((loc[1]+1) * (W - window_size) / 2)
+        x_r = int(min(H, x_l + window_size))
+        y_r = int(min(W, y_l + window_size))
         tensors[i][1:, x_l:x_r, y_l:y_r] = -1
         tensors[i][0, x_l:x_r, y_l:y_r] = 1
     
     return tensors
+
+def torchlight(locs, tensors, *args):
+    
+    S, C, H, W = tensors.size()
+    tensor_n = -torch.ones_like(tensors)
+    if tensors.is_cuda:
+        tensor_n = tensor_n.cuda()
+    
+    for i in range(S):
+        loc = locs[i]
+        window_size =  min(H, W)//4
+        x_l = int((loc[0]+1) * (H - 2*window_size) / 2)
+        y_l = int((loc[1]+1) * (W - 2*window_size) / 2)
+        x_r = int(min(H, x_l + 2*window_size))
+        y_r = int(min(W, y_l + 2*window_size))
+        tensor_n[i][:, x_l:x_r, y_l:y_r] = tensors[i][:, x_l:x_r, y_l:y_r]
+    
+    return tensor_n
+
+def torchlight_fuse(I, J_hat):
+    
+    return torch.clamp( I/2 + J_hat/2 + 1, 0, 1)*2-1 
 
 def getDefocuesImage(focusPos, J, dpt):
     '''

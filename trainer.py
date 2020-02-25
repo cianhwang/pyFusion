@@ -159,6 +159,7 @@ class Trainer(object):
         batch_time = AverageMeter()
         losses = AverageMeter()
         rewards = AverageMeter()
+        mselosses = AverageMeter()
         tic = time.time()
         
         with tqdm(total=self.num_train) as pbar:
@@ -181,26 +182,34 @@ class Trainer(object):
                 mus.append(l)
                 baselines = []
 
-                I =  utils.getDefocuesImage(l, x_train[:, 0, ...], dpt[:, 0, ...])
+                I =  utils.torchlight(l, x_train[:, 0, ...]) #getDefocuesImage(l, x_train[:, 0, ...], dpt[:, 0, ...])
                 I_est.append(I)
                 J_prev = I #x_train[:, 0, ...] ## set J_prev to be first frame of the image sequences
                 J_est.append(J_prev)
                 reward = []
+                
+                if self.use_gan:
+                    ## build a discriminator
+                    pass
 
                 for t in range(x_train.size(1)-1):
                     # for each time step: estimate, capture and fuse.
                     h, mu, l, b, p = self.model(I, l, h)
                     log_pi.append(p)
-                    I = utils.getDefocuesImage(l, x_train[:, t+1, ...], dpt[:, t+1, ...])
+                    I = utils.torchlight(l, x_train[:, t+1, ...])#.getDefocuesImage(l, x_train[:, t+1, ...], dpt[:, t+1, ...])
                     I_est.append(I)
-                    J_prev = utils.fuseTwoImages(I, J_prev)
+                    J_prev = utils.torchlight_fuse(I, J_prev)#fuseTwoImages(I, J_prev)
                     J_est.append(J_prev)
 
                     locs.append(l)
                     mus.append(mu)
                     baselines.append(b)
-                    
-                    r = -utils.reconsLoss(J_prev, x_train[:, t+1, ...])
+                    if self.use_gan:
+                        ## treat the agent as a Generator and update rewards
+                        pass
+                    else:
+#                         r = -utils.reconsLoss(J_prev, x_train[:, t+1, ...])
+                        r = torch.sum((locs[-1] - locs[-2])**2, dim = 1)
                     reward.append(r)
                     for tt in range(t):
                         reward[tt] += (0.9 ** (t - tt)) * r
@@ -213,9 +222,9 @@ class Trainer(object):
 
                 baselines = torch.stack(baselines).transpose(1, 0)
                 log_pi = torch.stack(log_pi).transpose(1, 0)
-                R = torch.stack(reward).transpose(1, 0)
+                R = torch.stack(reward).transpose(1, 0) * 1.0
     
-#                 R = -utils.reconsLoss(J_est, x_train)
+#                 R = -utils.reconsLoss(J_est[:, 1:], x_train[:, 1:])
 #                 R = R.unsqueeze(1).repeat(1, x_train.size(1)-1)
                 
                 loss_baseline = F.mse_loss(baselines, R)
@@ -235,6 +244,8 @@ class Trainer(object):
                 losses.update(loss.item(), self.batch_size)
 
                 rewards.update(torch.mean(torch.sum(R, dim = 1),dim = 0).item(),self.batch_size)
+                
+                mselosses.update(torch.mean(utils.reconsLoss(J_est[:, 1:], x_train[:, 1:]), dim = 0).item(), self.batch_size)
 
                 # measure elapsed time
                 toc = time.time()
@@ -253,6 +264,7 @@ class Trainer(object):
                 iteration = epoch*len(self.train_loader)# + i
                 self.writer.add_scalar('Stats/total_loss', losses.avg, iteration)
                 self.writer.add_scalar('Stats/reward', rewards.avg, iteration)
+                self.writer.add_scalar('Stats/mseloss', mselosses.avg*1000, iteration)
                     
             if self.use_tensorboard and self.is_plot:
                 defocused = utils.color_region(I_est[0], locs[0])

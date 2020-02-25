@@ -59,19 +59,19 @@ class focusLocNet(nn.Module):
         x = F.relu(self.fc1(x))
         y = F.relu(self.fc0(l_prev))
         x = torch.cat((x, y), dim = 1)
-        x = F.relu(self.bn2(self.fc2(x)))
-        x = F.relu(self.bn3(self.fc3(x)))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
         
         x, hidden = self.lstm(x.view(1, *x.size()), h_prev)
 
         x = hidden[0].view(batch_size, -1)
         
         b = x.detach()
-        b = F.relu(self.bn6_0(self.fc6_0(b)))
+        #b = F.relu(self.bn6_0(self.fc6_0(b)))
         b = self.fc6(b).squeeze(1)
 
-        x = F.relu(self.bn4(self.fc4(x)))
-        x = F.relu(self.bn5_0(self.fc5_0(x)))
+        x = F.relu(self.fc4(x))
+        #x = F.relu(self.bn5_0(self.fc5_0(x)))
         mu = torch.tanh(self.fc5(x))
         
         noise = torch.zeros_like(mu)
