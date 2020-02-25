@@ -36,7 +36,8 @@ def t2n(tensor, isImage = True):
         elif len(narray.shape) == 3:
             narray = narray.transpose(1, 2, 0)
         else:
-            raise Exception("convertion error!")
+            #raise Exception("convertion error!")
+            pass
     return narray
 
 def n2t(narray, isImage = True, device = "cuda:0"):
@@ -46,7 +47,8 @@ def n2t(narray, isImage = True, device = "cuda:0"):
         elif len(narray.shape) == 3:
             narray = narray.transpose(2, 0, 1)  
         else:
-            raise Exception("convertion error!")
+            #raise Exception("convertion error!")
+            pass
     tensor = torch.from_numpy(narray).float().to(device)
     return tensor
 
@@ -122,27 +124,27 @@ def color_region(tensors, locs):
     
     return tensors
 
-def torchlight(locs, tensors, *args):
+# def torchlight(locs, tensors, *args):
     
-    S, C, H, W = tensors.size()
-    tensor_n = -torch.ones_like(tensors)
-    if tensors.is_cuda:
-        tensor_n = tensor_n.cuda()
+#     S, C, H, W = tensors.size()
+#     tensor_n = -torch.ones_like(tensors)
+#     if tensors.is_cuda:
+#         tensor_n = tensor_n.cuda()
     
-    for i in range(S):
-        loc = locs[i]
-        window_size =  min(H, W)//4
-        x_l = int((loc[0]+1) * (H - 2*window_size) / 2)
-        y_l = int((loc[1]+1) * (W - 2*window_size) / 2)
-        x_r = int(min(H, x_l + 2*window_size))
-        y_r = int(min(W, y_l + 2*window_size))
-        tensor_n[i][:, x_l:x_r, y_l:y_r] = tensors[i][:, x_l:x_r, y_l:y_r]
+#     for i in range(S):
+#         loc = locs[i]
+#         window_size =  min(H, W)//4
+#         x_l = int((loc[0]+1) * (H - 2*window_size) / 2)
+#         y_l = int((loc[1]+1) * (W - 2*window_size) / 2)
+#         x_r = int(min(H, x_l + 2*window_size))
+#         y_r = int(min(W, y_l + 2*window_size))
+#         tensor_n[i][:, x_l:x_r, y_l:y_r] = tensors[i][:, x_l:x_r, y_l:y_r]
     
-    return tensor_n
+#     return tensor_n
 
-def torchlight_fuse(I, J_hat):
+# def torchlight_fuse(I, J_hat):
     
-    return torch.clamp( I/2 + J_hat/2 + 1, 0, 1)*2-1 
+#     return torch.clamp( I/2 + J_hat/2 + 1, 0, 1)*2-1 
 
 def getDefocuesImage(focusPos, J, dpt):
     '''
@@ -156,6 +158,7 @@ def getDefocuesImage(focusPos, J, dpt):
     '''
 
     imageTensor = []
+    simAutofocusTensor = []
     is_cuda_tensor = focusPos.is_cuda
     if is_cuda_tensor:
         focusPos, J, dpt = focusPos.cpu(), J.cpu(), dpt.cpu()
@@ -169,14 +172,34 @@ def getDefocuesImage(focusPos, J, dpt):
         focal_img = myd2d(J_np, dpt_np, focusPos_np, inpaint_occlusion=False)
         focal_img = focal_img/127.5-1
         focal_img = n2t(focal_img)
+        sim_autofocus_map = (np.abs(dpt_np - focusPos_np) > 1000).astype(np.float32)
+        sim_autofocus_map = n2t(sim_autofocus_map)
+        simAutofocusTensor.append(sim_autofocus_map)
         imageTensor.append(focal_img)
         
     imageTensor = torch.stack(imageTensor)
+    simAutofocusTensor = torch.stack(simAutofocusTensor)
 
     if is_cuda_tensor:
         imageTensor = imageTensor.cuda()
+        simAutofocusTensor = simAutofocusTensor.cuda()
     
-    return imageTensor
+    return imageTensor, simAutofocusTensor
+
+def pickBlurry(simAutofocusTensor, l):
+    B, H, W = simAutofocusTensor.shape
+    window_size =  min(H, W)//4
+    rewards = []
+    for i in range(B):
+        loc = l[i]
+        sim_autofocus_map = simAutofocusTensor[i]
+        x_l = int((loc[0]+1) * (H - window_size) / 2)
+        y_l = int((loc[1]+1) * (W - window_size) / 2)
+        x_r = int(min(H, x_l + window_size))
+        y_r = int(min(W, y_l + window_size))
+        rewards.append((torch.sum(sim_autofocus_map[x_l:x_r, y_l:y_r]) > 128).float())
+    rewards = torch.stack(rewards)
+    return rewards
 
 def fuseTwoImages(I, J_hat):
     '''

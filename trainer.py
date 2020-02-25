@@ -181,12 +181,14 @@ class Trainer(object):
                 locs.append(l)
                 mus.append(l)
                 baselines = []
+                sim = []
 
-                I =  utils.torchlight(l, x_train[:, 0, ...]) #getDefocuesImage(l, x_train[:, 0, ...], dpt[:, 0, ...])
+                I, simAutofocusTensor =  utils.getDefocuesImage(l, x_train[:, 0, ...], dpt[:, 0, ...])
                 I_est.append(I)
                 J_prev = I #x_train[:, 0, ...] ## set J_prev to be first frame of the image sequences
                 J_est.append(J_prev)
                 reward = []
+                sim.append(simAutofocusTensor)
                 
                 if self.use_gan:
                     ## build a discriminator
@@ -195,27 +197,35 @@ class Trainer(object):
                 for t in range(x_train.size(1)-1):
                     # for each time step: estimate, capture and fuse.
                     h, mu, l, b, p = self.model(I, l, h)
+                    
+                    #####
+                    r = pickBlurry(simAutofocusTensor, l)
+                    #####
+                    
                     log_pi.append(p)
-                    I = utils.torchlight(l, x_train[:, t+1, ...])#.getDefocuesImage(l, x_train[:, t+1, ...], dpt[:, t+1, ...])
+                    I, simAutofocusTensor = utils.getDefocuesImage(l, x_train[:, t+1, ...], dpt[:, t+1, ...])
                     I_est.append(I)
-                    J_prev = utils.torchlight_fuse(I, J_prev)#fuseTwoImages(I, J_prev)
+                    J_prev = utils.fuseTwoImages(I, J_prev)
                     J_est.append(J_prev)
+                    sim.append(simAutofocusTensor)
 
                     locs.append(l)
                     mus.append(mu)
                     baselines.append(b)
-                    if self.use_gan:
-                        ## treat the agent as a Generator and update rewards
-                        pass
-                    else:
-#                         r = -utils.reconsLoss(J_prev, x_train[:, t+1, ...])
-                        r = torch.sum((locs[-1] - locs[-2])**2, dim = 1)
+#                     if self.use_gan:
+#                         ## treat the agent as a Generator and update rewards
+#                         pass
+#                     else:
+#                         r = utils.pickBlurry(simAutofocusTensor, l)
+#                         #r = -utils.reconsLoss(J_prev, x_train[:, t+1, ...])
+#                         #r += torch.sum((locs[-1] - locs[-2])**2, dim = 1)
                     reward.append(r)
                     for tt in range(t):
                         reward[tt] += (0.9 ** (t - tt)) * r
                
                 I_est = torch.stack(I_est, dim = 1)                
                 J_est = torch.stack(J_est, dim = 1)
+                sim = torch.stack(sim, dim = 1)
                 
                 mus = torch.stack(mus, dim = 1)
                 locs = torch.stack(locs, dim = 1)
@@ -272,7 +282,9 @@ class Trainer(object):
                 gt = utils.color_region(x_train[0], mus[0])
                 display_tensor = torch.cat([defocused, pred, gt], dim = 0)
                 display_grid = torchvision.utils.make_grid(display_tensor/2+0.5, nrow = self.seq)
-                self.writer.add_image('Visualization', display_grid, epoch)
+                self.writer.add_image('Visualization/a', display_grid, epoch)
+                sim_grid = torchvision.utils.make_grid(sim[0].unsqueeze(1))
+                self.writer.add_image('Visualization/b', sim_grid, epoch)
 
             return losses.avg
     
