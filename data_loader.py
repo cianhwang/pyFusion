@@ -200,8 +200,8 @@ class DAVISImageFolder(data.Dataset):
         return img
     
     def load_dpt(self, dpt_path):
-        #dpt = np.load(dpt_path)
-        dpt = fake_depth()
+        dpt = np.load(dpt_path)
+        #dpt = fake_depth()
         dpt = np.float32(skimage.transform.resize(dpt, (480, 854)))
 
         return dpt
