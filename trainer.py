@@ -221,8 +221,8 @@ class Trainer(object):
                         ## treat the agent as a Generator and update rewards
                         pass
                     else:
-                        r = torch.sum((mu - loc_dict["mus"][-1])**2, dim = 1)
-#                         r = utils.greedyReward(l, gaf)
+#                         r = torch.sum((mu - loc_dict["mus"][-1])**2, dim = 1)
+                        r = utils.greedyReward(l, gaf)
 #                         if t==0:
 #                             r = torch.zeros_like(r).to(self.device)
                         
