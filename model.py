@@ -21,8 +21,9 @@ class focusLocNet(nn.Module):
         super(focusLocNet, self).__init__()
         
         self.std = std
+        self.channel = 1
         
-        self.block1 = convBlock(3, 16, 5, 2)
+        self.block1 = convBlock(self.channel, 16, 5, 2)
         self.block2 = convBlock(16, 32, 5, 2)
         self.block3 = convBlock(32, 32, 5, 2)
         self.block4 = convBlock(32, 64, 3, 2, isBn = False)

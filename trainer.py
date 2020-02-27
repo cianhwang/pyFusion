@@ -43,6 +43,28 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
+class easyAppendDict(object):
+    
+    def __init__(self, *argv):
+        self.dict = {}
+        for arg in argv:
+            self.dict[arg] = []
+    def __getitem__(self, key):
+        if key in self.dict.keys():
+            return self.dict[key]
+        else: 
+            raise KeyError("no such key.")
+    def append(self, *argv):
+        for i, (k, arg) in enumerate(zip(self.dict.keys(), argv)):
+            (self.dict[k]).append(arg)
+            
+    def toTensor(self):
+        for i, (k, v) in enumerate(self.dict.items()):
+            self.dict[k] = torch.stack(v, dim = 1)
+            
+class prettyfloat(float):
+    def __repr__(self):
+        return "%0.3f" % self
 
 # In[3]:
 
@@ -157,7 +179,7 @@ class Trainer(object):
         This is used by train() and should not be called manually.
         """
         batch_time = AverageMeter()
-        losses = AverageMeter()
+        losses = {"t_loss": AverageMeter(), "b_loss": AverageMeter(), "r_loss": AverageMeter()}
         rewards = AverageMeter()
         mselosses = AverageMeter()
         tic = time.time()
@@ -173,22 +195,18 @@ class Trainer(object):
                 
                 h, l = self.reset()
                 # data shape: x_train (B, Seq, C, H, W)
+                data_dict = easyAppendDict("I_est", "J_est", "gaf_est", "u_est")
+                loc_dict  = easyAppendDict("mus", "locs")
                 log_pi = []
-                J_est = []
-                I_est = []
-                locs = []
-                mus = []
-                locs.append(l)
-                mus.append(l)
                 baselines = []
-                sim = []
-
-                I, simAutofocusTensor =  utils.getDefocuesImage(l, x_train[:, 0, ...], dpt[:, 0, ...])
-                I_est.append(I)
-                J_prev = I #x_train[:, 0, ...] ## set J_prev to be first frame of the image sequences
-                J_est.append(J_prev)
                 reward = []
-                sim.append(simAutofocusTensor)
+                reward_wo_gamma = []
+
+                I, gaf, u_in =  utils.getDefocuesImage(l, x_train[:, 0, ...], dpt[:, 0, ...])
+                J_prev = I #x_train[:, 0, ...] ## set J_prev to be first frame of the image sequences
+
+                data_dict.append(I, J_prev, gaf, u_in)
+                loc_dict.append(l, l)
                 
                 if self.use_gan:
                     ## build a discriminator
@@ -196,66 +214,71 @@ class Trainer(object):
 
                 for t in range(x_train.size(1)-1):
                     # for each time step: estimate, capture and fuse.
-                    h, mu, l, b, p = self.model(I, l, h)
+                    rgbd = torch.cat([I, gaf], dim = 1)
+                    h, mu, l, b, p = self.model(gaf, l, h)
                     
-                    #####
-                    r = pickBlurry(simAutofocusTensor, l)
-                    #####
+                    if self.use_gan:
+                        ## treat the agent as a Generator and update rewards
+                        pass
+                    else:
+                        r = torch.sum((mu - loc_dict["mus"][-1])**2, dim = 1)
+#                         r = utils.greedyReward(l, gaf)
+                        if t==0:
+                            r = torch.zeros_like(r).to(self.device)
+                        
                     
                     log_pi.append(p)
-                    I, simAutofocusTensor = utils.getDefocuesImage(l, x_train[:, t+1, ...], dpt[:, t+1, ...])
-                    I_est.append(I)
+                    I, gaf, u_in = utils.getDefocuesImage(l, x_train[:, t+1, ...], dpt[:, t+1, ...])
+                    
+                    ####
+#                     r = utils.greedyLoss(gaf, data_dict["gaf_est"][-1])
+#                    r = torch.sum((loc_dict["mus"][-1] - mu)**2, dim = 1)
+                    ####
+                   
                     J_prev = utils.fuseTwoImages(I, J_prev)
-                    J_est.append(J_prev)
-                    sim.append(simAutofocusTensor)
+                    data_dict.append(I, J_prev, gaf, u_in)
+                    loc_dict.append(mu, l)
 
-                    locs.append(l)
-                    mus.append(mu)
+                    
                     baselines.append(b)
-#                     if self.use_gan:
-#                         ## treat the agent as a Generator and update rewards
-#                         pass
-#                     else:
-#                         r = utils.pickBlurry(simAutofocusTensor, l)
-#                         #r = -utils.reconsLoss(J_prev, x_train[:, t+1, ...])
-#                         #r += torch.sum((locs[-1] - locs[-2])**2, dim = 1)
+
                     reward.append(r)
+                    reward_wo_gamma.append(r)
                     for tt in range(t):
-                        reward[tt] += (0.9 ** (t - tt)) * r
-               
-                I_est = torch.stack(I_est, dim = 1)                
-                J_est = torch.stack(J_est, dim = 1)
-                sim = torch.stack(sim, dim = 1)
-                
-                mus = torch.stack(mus, dim = 1)
-                locs = torch.stack(locs, dim = 1)
+                        reward[tt] = reward[tt] + (0.9 ** (t - tt)) * r
+
+                data_dict.toTensor()
+                loc_dict.toTensor()
 
                 baselines = torch.stack(baselines).transpose(1, 0)
                 log_pi = torch.stack(log_pi).transpose(1, 0)
                 R = torch.stack(reward).transpose(1, 0) * 1.0
-    
-#                 R = -utils.reconsLoss(J_est[:, 1:], x_train[:, 1:])
+                R_wo_gamma = torch.stack(reward_wo_gamma).transpose(1, 0)
+
+#                 R = -utils.reconsLoss(data_dict["J_est"][:, 1:].detach(), x_train[:, 1:])*100.0
 #                 R = R.unsqueeze(1).repeat(1, x_train.size(1)-1)
                 
                 loss_baseline = F.mse_loss(baselines, R)
-                
+            
                 adjusted_reward = R - baselines.detach()              
 
                 ## Basic REINFORCE algorithm
                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
-
-                loss = loss_baseline + loss_reinforce
+                
+                loss = loss_reinforce + loss_baseline
                 
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
 
-                losses.update(loss.item(), self.batch_size)
+                losses["t_loss"].update(loss.item(), self.batch_size)
+                losses["b_loss"].update(loss_baseline.item(), self.batch_size)
+                losses["r_loss"].update(loss_reinforce.item(), self.batch_size)
 
                 rewards.update(torch.mean(torch.sum(R, dim = 1),dim = 0).item(),self.batch_size)
                 
-                mselosses.update(torch.mean(utils.reconsLoss(J_est[:, 1:], x_train[:, 1:]), dim = 0).item(), self.batch_size)
+                mselosses.update(torch.mean(utils.reconsLoss(data_dict["J_est"][:, 1:], x_train[:, 1:]), dim = 0).item(), self.batch_size)
 
                 # measure elapsed time
                 toc = time.time()
@@ -271,22 +294,31 @@ class Trainer(object):
                 pbar.update(self.batch_size)
 
             if self.use_tensorboard:
-                iteration = epoch*len(self.train_loader)# + i
-                self.writer.add_scalar('Stats/total_loss', losses.avg, iteration)
+                iteration = epoch#*len(self.train_loader)# + i
+#                 self.writer.add_scalars('Stats/total_loss', {"t_loss":losses["t_loss"].avg, 
+#                                                              "b_loss":losses["b_loss"].avg,
+#                                                              "r_loss":losses["r_loss"].avg}
+#                                                              , iteration)
+                self.writer.add_scalar('Stats/total_loss', losses["t_loss"].avg, iteration)
+                self.writer.add_scalar('Stats/reinforce_loss', losses["r_loss"].avg, iteration)
                 self.writer.add_scalar('Stats/reward', rewards.avg, iteration)
                 self.writer.add_scalar('Stats/mseloss', mselosses.avg*1000, iteration)
+
                     
             if self.use_tensorboard and self.is_plot:
-                defocused = utils.color_region(I_est[0], locs[0])
-                pred = J_est[0]
-                gt = utils.color_region(x_train[0], mus[0])
-                display_tensor = torch.cat([defocused, pred, gt], dim = 0)
+                defocused = utils.color_region(data_dict["I_est"][0], loc_dict["locs"][0])
+                pred = data_dict["J_est"][0]
+                gt = utils.color_region(x_train[0], loc_dict["mus"][0])
+                gaf = data_dict["gaf_est"][0].repeat(1, 3, 1, 1)
+                gaf = utils.color_region(gaf, loc_dict["mus"][0])
+                display_tensor = torch.cat([defocused, pred, gt, gaf], dim = 0)
                 display_grid = torchvision.utils.make_grid(display_tensor/2+0.5, nrow = self.seq)
-                self.writer.add_image('Visualization/a', display_grid, epoch)
-                sim_grid = torchvision.utils.make_grid(sim[0].unsqueeze(1))
-                self.writer.add_image('Visualization/b', sim_grid, epoch)
+                self.writer.add_image('Visualization', display_grid, epoch)
+                
+                rw_list = map(prettyfloat, R_wo_gamma.tolist()[0])
+                self.writer.add_text("reward log", '[%s]' % ', '.join(map(str, rw_list)), epoch)
 
-            return losses.avg
+            return losses["t_loss"].avg
     
     
 #     def test(self):

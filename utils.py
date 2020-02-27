@@ -88,7 +88,7 @@ def reconsLoss(J_est, J_gt):
     '''
     lossList = []
 
-    for i in range(J_gt.size()[0]):
+    for i in range(J_gt.size(0)):
 #         lossList.append(2.5-torch.log10(4 / ((J_gt[i] - J_est[i])**2).mean()))
         lossList.append(F.mse_loss(J_gt[i], J_est[i]))
     lossTensor = torch.stack(lossList)
@@ -97,20 +97,29 @@ def reconsLoss(J_est, J_gt):
 
 def depth_from_region(depthmap, loc):
     
+    assert len(depthmap.shape) == 2
+    
     H, W = depthmap.shape
     window_size =  min(H, W)//4
+    
     x_l = int((loc[0]+1) * (H - window_size) / 2)
     y_l = int((loc[1]+1) * (W - window_size) / 2)
     x_r = int(min(H, x_l + window_size))
     y_r = int(min(W, y_l + window_size))
+
+        #print("fun_depth_from_region: ({}, {})".format(x_l, y_l))
     
-    #print("fun_depth_from_region: ({}, {})".format(x_l, y_l))
+    if type(loc) == torch.Tensor:
+        median = torch.median(depthmap[x_l:x_r, y_l:y_r])
+    else:
+        median = np.median(depthmap[x_l:x_r, y_l:y_r])        
     
-    return depthmap[x_l:x_r, y_l:y_r].mean()
+    return median
 
 def color_region(tensors, locs):
     
     S, C, H, W = tensors.size()
+    assert S == locs.size(0)
     
     for i in range(S):
         loc = locs[i]
@@ -166,13 +175,13 @@ def getDefocuesImage(focusPos, J, dpt):
     for i in range(J.size()[0]):
         J_np = t2n(J[i])
         J_np = ((J_np+1)*127.5).astype(np.uint8) # uint8
-        dpt_np = dpt[i].squeeze().numpy()*1000
+        dpt_np = dpt[i].squeeze().numpy()*1000.0
         focusPos_np = focusPos[i].detach().numpy()
         focusPos_np = depth_from_region(dpt_np, focusPos_np)
         focal_img = myd2d(J_np, dpt_np, focusPos_np, inpaint_occlusion=False)
         focal_img = focal_img/127.5-1
         focal_img = n2t(focal_img)
-        sim_autofocus_map = (np.abs(dpt_np - focusPos_np) > 1000).astype(np.float32)
+        sim_autofocus_map = ((dpt_np - focusPos_np)[..., np.newaxis])/4000.0
         sim_autofocus_map = n2t(sim_autofocus_map)
         simAutofocusTensor.append(sim_autofocus_map)
         imageTensor.append(focal_img)
@@ -184,22 +193,23 @@ def getDefocuesImage(focusPos, J, dpt):
         imageTensor = imageTensor.cuda()
         simAutofocusTensor = simAutofocusTensor.cuda()
     
-    return imageTensor, simAutofocusTensor
+    return imageTensor, simAutofocusTensor, (torch.abs(simAutofocusTensor) < 0.25).float()
 
-def pickBlurry(simAutofocusTensor, l):
-    B, H, W = simAutofocusTensor.shape
-    window_size =  min(H, W)//4
+def greedyReward(l, P):
+    batch_size = P.size(0)
+
     rewards = []
-    for i in range(B):
+    
+    for i in range(batch_size):
         loc = l[i]
-        sim_autofocus_map = simAutofocusTensor[i]
-        x_l = int((loc[0]+1) * (H - window_size) / 2)
-        y_l = int((loc[1]+1) * (W - window_size) / 2)
-        x_r = int(min(H, x_l + window_size))
-        y_r = int(min(W, y_l + window_size))
-        rewards.append((torch.sum(sim_autofocus_map[x_l:x_r, y_l:y_r]) > 128).float())
+        p = (P[i, 0] * 4).int().float()/4.0
+        rewards.append(depth_from_region(p, loc).abs_())
+    
     rewards = torch.stack(rewards)
+    
     return rewards
+    
+
 
 def fuseTwoImages(I, J_hat):
     '''

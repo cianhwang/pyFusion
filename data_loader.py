@@ -74,32 +74,35 @@ class SeqToPILImage(object):
     def __init__(self, mode=None):
         self.mode = mode
 
-    def __call__(self, pic_seq):
-        for i, pic in enumerate(pic_seq):
+    def __call__(self, pic_seq, dpt_seq):
+        for i, (pic, dpt) in enumerate(zip(pic_seq, dpt_seq)):
             pic_seq[i] = TF.to_pil_image(pic, self.mode)
-        return pic_seq
+            dpt_seq[i] = TF.to_pil_image(dpt, self.mode)
+        return pic_seq, dpt_seq
     
 class SeqRandomHorizontalFlip(object):
     def __init__(self, p = 0.5):
         self.p = p
 
-    def __call__(self, img_seq):
+    def __call__(self, img_seq, dpt_seq):
         randnum = random.random()
-        for i, img in enumerate(img_seq):
+        for i, (img, dpt) in enumerate(zip(img_seq, dpt_seq)):
             if randnum < self.p:
                 img_seq[i] = TF.hflip(img)
-        return img_seq
+                dpt_seq[i] = TF.hflip(dpt)
+        return img_seq, dpt_seq
     
 class SeqRandomVerticalFlip(object):
     def __init__(self, p = 0.5):
         self.p = p
 
-    def __call__(self, img_seq):
+    def __call__(self, img_seq, dpt_seq):
         randnum = random.random()
-        for i, img in enumerate(img_seq):
+        for i, (img, dpt) in enumerate(zip(img_seq, dpt_seq)):
             if randnum < self.p:
                 img_seq[i] = TF.vflip(img)
-        return img_seq
+                dpt_seq[i] = TF.vflip(dpt)
+        return img_seq, dpt_seq
     
 class SeqRandomCrop(object):
     def __init__(self, size):
@@ -120,13 +123,14 @@ class SeqRandomCrop(object):
         j = random.randint(0, w - tw)
         return i, j, th, tw
 
-    def __call__(self, img_seq):
+    def __call__(self, img_seq, dpt_seq):
 
         i, j, h, w = self.get_params(img_seq[0], self.size)
 
-        for i, img in enumerate(img_seq):
+        for i, (img, dpt) in enumerate(zip(img_seq, dpt_seq)):
             img_seq[i] = TF.crop(img, i, j, h, w)
-        return img_seq
+            dpt_seq[i] = TF.crop(dpt, i, j, h, w)
+        return img_seq, dpt_seq
     
 class SeqResize(object):
     def __init__(self, size, interpolation=Image.BILINEAR):
@@ -134,21 +138,41 @@ class SeqResize(object):
         self.size = size
         self.interpolation = interpolation
 
-    def __call__(self, img_seq):
-        for i, img in enumerate(img_seq):
+    def __call__(self, img_seq, dpt_seq):
+        for i, (img, dpt) in enumerate(zip(img_seq, dpt_seq)):
             img_seq[i] = TF.resize(img, self.size, self.interpolation)
-        return img_seq
+            dpt_seq[i] = TF.resize(dpt, self.size, self.interpolation)
+        return img_seq, dpt_seq
     
 class SeqToTensor(object):
-    def __call__(self, img_seq):
-        for i, img in enumerate(img_seq):
+    def __call__(self, img_seq, dpt_seq):
+        for i, (img, dpt) in enumerate(zip(img_seq, dpt_seq)):
             img_seq[i] = TF.to_tensor(img)
-        return torch.stack(img_seq)
+            dpt_seq[i] = TF.to_tensor(dpt)
+        return torch.stack(img_seq), torch.stack(dpt_seq)
+    
+class ComposedTransforms(object):
+    
+    def __init__(self, transforms):
+        self.transforms = transforms
+
+    def __call__(self, img_seq, dpt_seq):
+        for t in self.transforms:
+            img_seq, dpt_seq = t(img_seq, dpt_seq)
+        return img_seq, dpt_seq
+    
+def fake_depth():
+    img = np.zeros((64, 128))
+    for i in range(0, 128, 32):
+        img[..., i:i+32] = i / 32.0
+    return img
+            
+    
     
 
 class DAVISImageFolder(data.Dataset):
 
-    def __init__(self, list_path, dpt_list_path, seq, transform = transforms.Compose([
+    def __init__(self, list_path, dpt_list_path, seq, transform = ComposedTransforms([
                                 SeqToPILImage(),
                                 SeqRandomHorizontalFlip(),
                                 SeqRandomVerticalFlip(),
@@ -176,7 +200,8 @@ class DAVISImageFolder(data.Dataset):
         return img
     
     def load_dpt(self, dpt_path):
-        dpt = np.load(dpt_path)
+        #dpt = np.load(dpt_path)
+        dpt = fake_depth()
         dpt = np.float32(skimage.transform.resize(dpt, (480, 854)))
 
         return dpt
@@ -213,9 +238,9 @@ class DAVISImageFolder(data.Dataset):
             
 #         imgSeq = torch.stack(imgSeq)
 #         dptSeq = torch.stack(dptSeq)
-        imgSeq = self.transform(imgSeq)
-        dptSeq = self.transform(dptSeq)
+        imgSeq, dptSeq = self.transform(imgSeq, dptSeq)
         imgSeq = torch.clamp(imgSeq*2.0-1.0, -1.0, 1.0)
+        dptSeq = torch.clamp(dptSeq, 1.0, 5.0)
         
         return imgSeq, dptSeq
 
