@@ -7,7 +7,7 @@ from data_loader import load_davis_dataset
 
 def main(config):
 
-    # ensure reproducibility
+#     # ensure reproducibility
 #     torch.manual_seed(config.random_seed)
 #     if config.use_cuda:
 #         torch.cuda.manual_seed(config.random_seed)

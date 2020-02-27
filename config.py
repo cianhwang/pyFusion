@@ -17,11 +17,11 @@ def add_argument_group(name):
 
 # data params
 data_arg = add_argument_group('Data Params')
-data_arg.add_argument('--batch_size', type=int, default=4,
+data_arg.add_argument('--batch_size', type=int, default=5,
                       help='# of images in each batch of data')
 data_arg.add_argument('--seq', type=int, default=4,
                       help='#seq of images in each batch of data')
-data_arg.add_argument('--std', type=int, default=0.17,
+data_arg.add_argument('--std', type=int, default=0.2,
                       help='model distr std')
 data_arg.add_argument('--video_path', type=str, default="../datasets/DAVIS/test_davis_video_sublist.txt",
                       help='Directory in which to load frames')
@@ -39,7 +39,7 @@ train_arg.add_argument('--is_train', type=str2bool, default=True,
                        help='Whether to train or test the model')
 train_arg.add_argument('--epochs', type=int, default=100,
                        help='# of epochs to train for')
-train_arg.add_argument('--init_lr', type=float, default=3e-4,
+train_arg.add_argument('--init_lr', type=float, default=1e-4,
                        help='Initial learning rate value')
 train_arg.add_argument('--use_gan', type=str2bool, default=False,
                        help='Whether to use GAN network/loss during training')

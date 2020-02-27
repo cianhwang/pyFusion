@@ -269,7 +269,7 @@ class DAVISDataLoader():
         dataset = DAVISImageFolder(list_path=list_path, dpt_list_path=dpt_list_path, seq = seq)
         self.data_loader = torch.utils.data.DataLoader(dataset,
                                                        batch_size=_batch_size,
-                                                       shuffle=True,
+                                                       shuffle=False,
                                                        num_workers=int(1))
         self.dataset = dataset
 

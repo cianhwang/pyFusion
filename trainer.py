@@ -124,7 +124,7 @@ class Trainer(object):
     def reset(self):
         h = [torch.zeros(1, self.batch_size, self.hidden_size).to(self.device),
                       torch.zeros(1, self.batch_size, self.hidden_size).to(self.device)]
-        l = torch.rand(self.batch_size, 2).to(self.device)*2-1
+        l = torch.zeros(self.batch_size, 2).to(self.device)#*2-1
         return h, l
       
             
@@ -223,8 +223,8 @@ class Trainer(object):
                     else:
                         r = torch.sum((mu - loc_dict["mus"][-1])**2, dim = 1)
 #                         r = utils.greedyReward(l, gaf)
-                        if t==0:
-                            r = torch.zeros_like(r).to(self.device)
+#                         if t==0:
+#                             r = torch.zeros_like(r).to(self.device)
                         
                     
                     log_pi.append(p)
