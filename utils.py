@@ -202,7 +202,8 @@ def greedyReward(l, P):
     
     for i in range(batch_size):
         loc = l[i]
-        p = (P[i, 0] * 4).int().float()/4.0
+        p = P[i, 0]
+        #p = (p * 4).int().float()/4.0
         rewards.append(depth_from_region(p, loc).abs_())
     
     rewards = torch.stack(rewards)

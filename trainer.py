@@ -99,11 +99,12 @@ class Trainer(object):
             if not os.path.exists(tensorboard_dir):
                 os.makedirs(tensorboard_dir)
             self.writer = SummaryWriter(tensorboard_dir)
-            
+        
+        self.channel = config.channel
         self.hidden_size = config.hidden_size
         
         self.std = config.std
-        self.model = focusLocNet(self.std, self.hidden_size).to(self.device)
+        self.model = focusLocNet(self.std, self.channel, self.hidden_size).to(self.device)
         self.RandomPolicy = RandomPolicy()
         self.CentralPolicy = CentralPolicy()
         
@@ -217,16 +218,6 @@ class Trainer(object):
                     rgbd = torch.cat([I, gaf], dim = 1)
                     h, mu, l, b, p = self.model(gaf, l, h)
                     
-                    if self.use_gan:
-                        ## treat the agent as a Generator and update rewards
-                        pass
-                    else:
-#                         r = torch.sum((mu - loc_dict["mus"][-1])**2, dim = 1)
-                        r = utils.greedyReward(l, gaf)
-#                         if t==0:
-#                             r = torch.zeros_like(r).to(self.device)
-                        
-                    
                     log_pi.append(p)
                     I, gaf, u_in = utils.getDefocuesImage(l, x_train[:, t+1, ...], dpt[:, t+1, ...])
                     
@@ -238,9 +229,13 @@ class Trainer(object):
                     J_prev = utils.fuseTwoImages(I, J_prev)
                     data_dict.append(I, J_prev, gaf, u_in)
                     loc_dict.append(mu, l)
-
-                    
                     baselines.append(b)
+                    
+                    if self.use_gan:
+                        ## treat the agent as a Generator and update rewards
+                        pass
+                    else:
+                        r = utils.greedyReward(l, gaf)
 
                     reward.append(r)
                     reward_wo_gamma.append(r)

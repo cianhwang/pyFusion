@@ -21,15 +21,17 @@ data_arg.add_argument('--batch_size', type=int, default=5,
                       help='# of images in each batch of data')
 data_arg.add_argument('--seq', type=int, default=4,
                       help='#seq of images in each batch of data')
-data_arg.add_argument('--std', type=int, default=0.2,
+data_arg.add_argument('--std', type=int, default=0.17,
                       help='model distr std')
-data_arg.add_argument('--video_path', type=str, default="../datasets/DAVIS/test_davis_video_tinylist.txt",
+data_arg.add_argument('--video_path', type=str, default="../datasets/DAVIS/test_davis_video_sublist.txt",
                       help='Directory in which to load frames')
-data_arg.add_argument('--depth_path', type=str, default="../datasets/DAVIS/test_davis_dpt_tinylist.txt",
+data_arg.add_argument('--depth_path', type=str, default="../datasets/DAVIS/test_davis_dpt_sublist.txt",
                       help='Directory in which to load depth maps w.r.t. frames')
 
 # core network params
 core_arg = add_argument_group('Core Network Params')
+core_arg.add_argument('--channel', type=int, default=1,
+                      help='channel of input images')
 core_arg.add_argument('--hidden_size', type=int, default=128,
                       help='hidden size of LSTM')
 
