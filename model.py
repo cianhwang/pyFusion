@@ -27,9 +27,9 @@ class focusLocNet(nn.Module):
         self.block2 = convBlock(16, 32, 5, 2)
         self.block3 = convBlock(32, 32, 5, 2)
         self.block4 = convBlock(32, 64, 3, 2, isBn = False)
-        self.fc0 = nn.Linear(2, 16)
-        self.fc1 = nn.Linear(768, 256)
-        self.fc2 = nn.Linear(256+16, 256)
+        self.fc0 = nn.Linear(2, 128)
+        self.fc1 = nn.Linear(768, 128)
+        self.fc2 = nn.Linear(128+128, 256)
         self.bn2 = nn.BatchNorm1d(256)
         self.fc3 = nn.Linear(256, 256)
         self.bn3 = nn.BatchNorm1d(256)
@@ -39,8 +39,8 @@ class focusLocNet(nn.Module):
         self.bn4 = nn.BatchNorm1d(128)
         self.fc5_0 = nn.Linear(128, 128)
         self.bn5_0 = nn.BatchNorm1d(128)
-        self.fc5 = nn.Linear(128, 16)
-        self.fc5_1 = nn.Linear(16+16, 2)        
+        self.fc5 = nn.Linear(128, 2)
+        #self.fc5_1 = nn.Linear(16+16, 2)        
 
         
         self.fc6_0 = nn.Linear(128, 128)
@@ -73,10 +73,10 @@ class focusLocNet(nn.Module):
         b = self.fc6(b).squeeze(1)
 
         x = F.relu(self.fc4(x))
-        x = F.relu(self.fc5(x))
-        #x = F.relu(self.bn5_0(self.fc5_0(x)))
-        x = torch.cat((x, y), dim = 1)
-        mu = torch.tanh(self.fc5_1(x))
+#         x = F.relu(self.fc5(x))
+#         #x = F.relu(self.bn5_0(self.fc5_0(x)))
+#         x = torch.cat((x, y), dim = 1)
+        mu = torch.tanh(self.fc5(x))
         
         noise = torch.zeros_like(mu)
         noise.data.normal_(std=self.std)
