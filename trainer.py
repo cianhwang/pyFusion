@@ -216,16 +216,11 @@ class Trainer(object):
                 for t in range(x_train.size(1)-1):
                     # for each time step: estimate, capture and fuse.
                     rgbd = torch.cat([I, gaf], dim = 1)
-                    h, mu, l, b, p = self.model(gaf, l, h)
+                    h, mu, l, b, p = self.model(rgbd, l, h)
                     
                     log_pi.append(p)
                     I, gaf, u_in = utils.getDefocuesImage(l, x_train[:, t+1, ...], dpt[:, t+1, ...])
-                    
-                    ####
-#                     r = utils.greedyLoss(gaf, data_dict["gaf_est"][-1])
-#                    r = torch.sum((loc_dict["mus"][-1] - mu)**2, dim = 1)
-                    ####
-                   
+                        
                     J_prev = utils.fuseTwoImages(I, J_prev)
                     data_dict.append(I, J_prev, gaf, u_in)
                     loc_dict.append(mu, l)
@@ -235,13 +230,17 @@ class Trainer(object):
                         ## treat the agent as a Generator and update rewards
                         pass
                     else:
-                        r = utils.greedyReward(l, gaf)
+#                         r = greedyReward(data_dict["u_est"][-2], u_in)
+#                         if t == x_train.size(1)-2:
+#                             data_dict.toTensor()
+#                             r = r-utils.reconsLoss(data_dict["J_est"][:, 1:].detach(), x_train[:, 1:]) * 100.0
+                        r = -utils.reconsLoss(J_prev.detach(), x_train[:, t+1]) * 100.0
 
                     reward.append(r)
                     reward_wo_gamma.append(r)
                     for tt in range(t):
                         reward[tt] = reward[tt] + (0.9 ** (t - tt)) * r
-
+                
                 data_dict.toTensor()
                 loc_dict.toTensor()
 
@@ -304,9 +303,12 @@ class Trainer(object):
                 defocused = utils.color_region(data_dict["I_est"][0], loc_dict["locs"][0])
                 pred = data_dict["J_est"][0]
                 gt = utils.color_region(x_train[0], loc_dict["mus"][0])
-                gaf = data_dict["gaf_est"][0].repeat(1, 3, 1, 1)
-                gaf = utils.color_region(gaf, loc_dict["mus"][0])
-                display_tensor = torch.cat([defocused, pred, gt, gaf], dim = 0)
+#                 gaf = data_dict["gaf_est"][0].repeat(1, 3, 1, 1)
+#                 gaf = utils.color_region(gaf, loc_dict["mus"][0])
+                u_in = data_dict["u_est"][0].repeat(1, 3, 1, 1)
+                u_in = torch.cat([u_in[:1], u_in[1:] - u_in[:-1]], dim = 0)
+                u_in = utils.color_region(u_in, loc_dict["mus"][0])
+                display_tensor = torch.cat([defocused, pred, gt, u_in], dim = 0)
                 display_grid = torchvision.utils.make_grid(display_tensor/2+0.5, nrow = self.seq)
                 self.writer.add_image('Visualization', display_grid, epoch)
                 

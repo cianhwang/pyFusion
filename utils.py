@@ -155,7 +155,7 @@ def color_region(tensors, locs):
     
 #     return torch.clamp( I/2 + J_hat/2 + 1, 0, 1)*2-1 
 
-def getDefocuesImage(focusPos, J, dpt):
+def getDefocuesImage(focusPos, J, dpt, threshold = 0.05):
     '''
     Camera model. 
     Input: 
@@ -193,18 +193,16 @@ def getDefocuesImage(focusPos, J, dpt):
         imageTensor = imageTensor.cuda()
         simAutofocusTensor = simAutofocusTensor.cuda()
     
-    return imageTensor, simAutofocusTensor, (torch.abs(simAutofocusTensor) < 0.25).float()
+    return imageTensor, simAutofocusTensor, (torch.abs(simAutofocusTensor) < threshold).float()
 
-def greedyReward(l, P):
-    batch_size = P.size(0)
+def greedyReward(U, Un):
+    batch_size = U.size(0)
 
     rewards = []
     
     for i in range(batch_size):
-        loc = l[i]
-        p = P[i, 0]
-        #p = (p * 4).int().float()/4.0
-        rewards.append(depth_from_region(p, loc).abs_())
+        r = torch.mean((Un - U > 0).float())
+        rewards.append(r)
     
     rewards = torch.stack(rewards)
     

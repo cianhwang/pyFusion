@@ -30,9 +30,9 @@ data_arg.add_argument('--depth_path', type=str, default="../datasets/DAVIS/test_
 
 # core network params
 core_arg = add_argument_group('Core Network Params')
-core_arg.add_argument('--channel', type=int, default=1,
+core_arg.add_argument('--channel', type=int, default=4,
                       help='channel of input images')
-core_arg.add_argument('--hidden_size', type=int, default=128,
+core_arg.add_argument('--hidden_size', type=int, default=256,
                       help='hidden size of LSTM')
 
 # training params
