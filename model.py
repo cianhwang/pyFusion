@@ -31,12 +31,14 @@ class focusLocNet(nn.Module):
         self.fc0 = nn.Linear(2, 128)
         self.fc1 = nn.Linear(768, 128)
         self.fc2 = fcBlock(128+128, 256)
-        self.fc3 = fcBlock(256, 256)
+        self.fc3 = fcBlock(256, 256, activation = None)
         self.lstm = nn.LSTM(input_size=256, hidden_size=self.hidden_size, num_layers=1)
 
         self.fc4 = fcBlock(self.hidden_size, 128)
+        self.fc5_0 = fcBlock(128, 128)
         self.fc5 = nn.Linear(128, 2)
-        self.fc6 = nn.Linear(self.hidden_size, 1)
+        self.fc6_0 = fcBlock(self.hidden_size, 128)
+        self.fc6 = nn.Linear(128, 1)
         
     def forward(self, x, l_prev, h_prev):
         batch_size = x.size(0)
@@ -57,9 +59,11 @@ class focusLocNet(nn.Module):
 
         x = hidden[0].view(batch_size, -1)
         
-        b = self.fc6(x.detach()).squeeze(1)
+        b = self.fc6_0(x.detach())
+        b = self.fc6(b).squeeze(1)
 
         x = self.fc4(x)
+        x = self.fc5_0(x)
         mu = torch.tanh(self.fc5(x))
         
         noise = torch.zeros_like(mu)
@@ -101,7 +105,7 @@ class convBlock(nn.Module):
 
 class fcBlock(nn.Module):
     
-    def __init__(self, in_feature, out_feature, activation = F.relu, isBn = True):
+    def __init__(self, in_feature, out_feature, activation = F.relu, isBn = False):
         super(fcBlock, self).__init__()
         self.isBn = isBn
         self.activation = activation
@@ -143,4 +147,9 @@ class CentralPolicy(object):
             loc_n = loc_n.cuda()
         return loc_n
 
-
+if __name__ == '__main__':
+    model = focusLocNet(0.17, 1, 256)
+    for n, p in model.named_parameters():
+        if(p.requires_grad) and ("bias" not in n):
+            print(n, p.max().item())
+            print(n, p.mean().item())

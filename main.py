@@ -13,8 +13,8 @@ def main(config):
         torch.cuda.manual_seed(config.random_seed)
 
     # instantiate data loaders
-    if config.is_train:
-        data_loader = load_davis_dataset(config.video_path, config.depth_path, config.seq, config.batch_size)
+#     if config.is_train:
+    data_loader = load_davis_dataset(config.video_path, config.depth_path, config.seq, config.batch_size)
 
     # instantiate trainer
     trainer = Trainer(config, data_loader)
@@ -22,6 +22,10 @@ def main(config):
     # either train
     if config.is_train:
         trainer.train()
+    else:
+        trainer.test()
+
+    
 
 if __name__ == '__main__':
     config, unparsed = get_config()

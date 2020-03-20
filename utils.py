@@ -155,7 +155,7 @@ def color_region(tensors, locs):
     
 #     return torch.clamp( I/2 + J_hat/2 + 1, 0, 1)*2-1 
 
-def getDefocuesImage(focusPos, J, dpt, threshold = 0.05):
+def getDefocuesImage(focusPos, J, dpt, threshold = 5e-2):
     '''
     Camera model. 
     Input: 
@@ -181,7 +181,7 @@ def getDefocuesImage(focusPos, J, dpt, threshold = 0.05):
         focal_img = myd2d(J_np, dpt_np, focusPos_np, inpaint_occlusion=False)
         focal_img = focal_img/127.5-1
         focal_img = n2t(focal_img)
-        sim_autofocus_map = ((dpt_np - focusPos_np)[..., np.newaxis])/4000.0
+        sim_autofocus_map = ((dpt_np - focusPos_np)[..., np.newaxis])/6000.0
         sim_autofocus_map = n2t(sim_autofocus_map)
         simAutofocusTensor.append(sim_autofocus_map)
         imageTensor.append(focal_img)

@@ -65,6 +65,35 @@ class easyAppendDict(object):
 class prettyfloat(float):
     def __repr__(self):
         return "%0.3f" % self
+    
+    
+def plot_grad_flow(named_parameters):
+    '''Plots the gradients flowing through different layers in the net during training.
+    Can be used for checking for possible gradient vanishing / exploding problems.
+
+    Usage: Plug this function in Trainer class after loss.backwards() as 
+    "plot_grad_flow(self.model.named_parameters())" to visualize the gradient flow'''
+    ave_grads = []
+    max_grads= []
+    layers = []
+    for n, p in named_parameters:
+        if(p.requires_grad) and ("bias" not in n):
+            layers.append(n)
+            ave_grads.append(p.grad.abs().mean())
+            max_grads.append(p.grad.abs().max())
+    plt.bar(np.arange(len(max_grads)), max_grads, alpha=0.1, lw=1, color="c")
+    plt.bar(np.arange(len(max_grads)), ave_grads, alpha=0.1, lw=1, color="b")
+    plt.hlines(0, 0, len(ave_grads)+1, lw=2, color="k" )
+    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
+    plt.xlim(left=0, right=len(ave_grads))
+    plt.ylim(bottom = -0.001, top=0.02) # zoom in on the lower gradient regions
+    plt.xlabel("Layers")
+    plt.ylabel("average gradient")
+    plt.title("Gradient flow")
+    plt.grid(True)
+    plt.legend([Line2D([0], [0], color="c", lw=4),
+                Line2D([0], [0], color="b", lw=4),
+                Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
 
 # In[3]:
 
@@ -95,6 +124,8 @@ class Trainer(object):
         
         if self.use_tensorboard:
             tensorboard_dir = config.logs_dir
+            if not self.is_train:
+                tensorboard_dir = tensorboard_dir + '_test'
             print('[*] Saving tensorboard logs to {}'.format(tensorboard_dir))
             if not os.path.exists(tensorboard_dir):
                 os.makedirs(tensorboard_dir)
@@ -121,6 +152,9 @@ class Trainer(object):
             self.D = init_net(NLayerDiscriminator().to(self.device))
             self.lr_gan = config.init_lr_gan
             self.optimizerD = optim.Adam(filter(lambda p: p.requires_grad, self.D.parameters()), lr=self.lr_gan)
+            
+            
+        self.supervised_random_locs = torch.rand((len(self.train_loader), self.batch_size, self.seq, 2)).to(self.device)*2.0-1.0
             
     def reset(self):
         h = [torch.zeros(1, self.batch_size, self.hidden_size).to(self.device),
@@ -214,33 +248,43 @@ class Trainer(object):
                     pass
 
                 for t in range(x_train.size(1)-1):
-                    # for each time step: estimate, capture and fuse.
-                    rgbd = torch.cat([I, gaf], dim = 1)
-                    h, mu, l, b, p = self.model(rgbd, l, h)
+                    if self.channel == 1:
+                        input_t = gaf
+                    elif self.channel == 2:
+                        Ig = 0.2125*I[:, 0:1] + 0.7154* I[:, 1:2]+ 0.0721* I[:, 2:]
+                        input_t = torch.cat([Ig, gaf], dim = 1)
+                    elif self.channel == 3:
+                        input_t = I
+                    else:
+                        input_t = torch.cat([I, gaf], dim = 1)
+
+                    h, mu, l, b, p = self.model(input_t, l, h)
                     
                     log_pi.append(p)
                     I, gaf, u_in = utils.getDefocuesImage(l, x_train[:, t+1, ...], dpt[:, t+1, ...])
                         
                     J_prev = utils.fuseTwoImages(I, J_prev)
-                    data_dict.append(I, J_prev, gaf, u_in)
-                    loc_dict.append(mu, l)
-                    baselines.append(b)
                     
                     if self.use_gan:
                         ## treat the agent as a Generator and update rewards
-                        pass
+                        raise NotImplementedError("gan loss has not been implemented")
                     else:
-#                         r = greedyReward(data_dict["u_est"][-2], u_in)
+                        r = greedyReward(data_dict["u_est"][-1], u_in)
 #                         if t == x_train.size(1)-2:
-#                             data_dict.toTensor()
-#                             r = r-utils.reconsLoss(data_dict["J_est"][:, 1:].detach(), x_train[:, 1:]) * 100.0
-                        r = -utils.reconsLoss(J_prev.detach(), x_train[:, t+1]) * 100.0
+#                             for k in range(len(data_dict["J_est"])):
+#                                 r = r-utils.reconsLoss(data_dict["J_est"][k].detach(), x_train[:, k]) * 10.0
+#                         r = -utils.reconsLoss(J_prev.detach(), x_train[:, t+1]) * 100.0
 
                     reward.append(r)
                     reward_wo_gamma.append(r)
                     for tt in range(t):
                         reward[tt] = reward[tt] + (0.9 ** (t - tt)) * r
-                
+                    
+                    u_in = (data_dict["u_est"][-1]+u_in >0).float()
+                    data_dict.append(I, J_prev, gaf, u_in)
+                    loc_dict.append(mu, l)
+                    baselines.append(b)
+                    
                 data_dict.toTensor()
                 loc_dict.toTensor()
 
@@ -260,7 +304,10 @@ class Trainer(object):
                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
                 
-                loss = loss_reinforce + loss_baseline
+                #loss = loss_reinforce + loss_baseline
+
+                loss = F.mse_loss(loc_dict['mus'][:, 1:], self.supervised_random_locs[i][:, 1:])
+                print(loc_dict['mus'][0][1], self.supervised_random_locs[i][0][1])
                 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -286,6 +333,9 @@ class Trainer(object):
                     )
                 )
                 pbar.update(self.batch_size)
+                
+                dict_grad = {}
+
 
             if self.use_tensorboard:
                 iteration = epoch#*len(self.train_loader)# + i
@@ -297,6 +347,13 @@ class Trainer(object):
                 self.writer.add_scalar('Stats/reinforce_loss', losses["r_loss"].avg, iteration)
                 self.writer.add_scalar('Stats/reward', rewards.avg, iteration)
                 self.writer.add_scalar('Stats/mseloss', mselosses.avg*1000, iteration)
+                self.writer.add_scalars('Stats/grads', dict_grad, iteration)
+                
+                for n, p in self.model.named_parameters():
+                    if(p.requires_grad) and ("bias" not in n) and ("bn" not in n):
+#                         dict_grad[str(n)+'_max'] = p.abs().max().item()
+#                         dict_grad[str(n)+'_avg'] = p.abs().mean().item()
+                        self.writer.add_histogram('hist/'+n, p, iteration)
 
                     
             if self.use_tensorboard and self.is_plot:
@@ -306,8 +363,8 @@ class Trainer(object):
 #                 gaf = data_dict["gaf_est"][0].repeat(1, 3, 1, 1)
 #                 gaf = utils.color_region(gaf, loc_dict["mus"][0])
                 u_in = data_dict["u_est"][0].repeat(1, 3, 1, 1)
-                u_in = torch.cat([u_in[:1], u_in[1:] - u_in[:-1]], dim = 0)
-                u_in = utils.color_region(u_in, loc_dict["mus"][0])
+#                 u_in = torch.cat([u_in[:1], u_in[1:] - u_in[:-1]], dim = 0)
+                u_in = utils.color_region(u_in, loc_dict["mus"][0])*2-1
                 display_tensor = torch.cat([defocused, pred, gt, u_in], dim = 0)
                 display_grid = torchvision.utils.make_grid(display_tensor/2+0.5, nrow = self.seq)
                 self.writer.add_image('Visualization', display_grid, epoch)
@@ -318,23 +375,92 @@ class Trainer(object):
             return losses["t_loss"].avg
     
     
-#     def test(self):
+    def test(self):
         
-#         self.load_checkpoint()
-#         self.model.eval()
-#         losses = AverageMeter()
+        self.load_checkpoint()
+        self.model.eval()
+        losses = AverageMeter()
         
-#         with torch.no_grad():
-#             for i, (x_test, dpt) in enumerate(self.test_loader):
+        with torch.no_grad():
+            for i, (x_test, dpt) in enumerate(self.test_loader):
 
-#                 x_test = x_test.to(self.device)
-#                 dpt = dpt.to(self.device)
+                x_test = x_test.to(self.device)
+                dpt = dpt.to(self.device)
 
-#                 self.batch_size = x_test.size(0)
-#                 self.seq = x_test.size(1)
-#                 self.model.init_hidden()
+                self.batch_size = x_test.size(0)
+                self.seq = x_test.size(1)
+                
+                h, l = self.reset()
+                
+                data_dict = easyAppendDict("I_est", "J_est", "gaf_est", "u_est")
+                loc_dict  = easyAppendDict("mus", "locs")
+                log_pi = []
+                baselines = []
+                reward = []
+                reward_wo_gamma = []
 
-#             return losses.avg
+                I, gaf, u_in =  utils.getDefocuesImage(l, x_test[:, 0, ...], dpt[:, 0, ...])
+                J_prev = I 
+
+                data_dict.append(I, J_prev, gaf, u_in)
+                loc_dict.append(l, l)
+                
+                if self.use_gan:
+                    ## build a discriminator
+                    pass
+
+                for t in range(x_test.size(1)-1):
+                    if self.channel == 1:
+                        input_t = gaf
+                    elif self.channel == 2:
+                        Ig = 0.2125*I[:, 0:1] + 0.7154* I[:, 1:2]+ 0.0721* I[:, 2:]
+                        input_t = torch.cat([Ig, gaf], dim = 1)
+                    elif self.channel == 3:
+                        input_t = I
+                    else:
+                        input_t = torch.cat([I, gaf], dim = 1)
+
+                    h, mu, l, b, p = self.model(input_t, l, h)
+                    
+                    log_pi.append(p)
+                    I, gaf, u_in = utils.getDefocuesImage(l, x_test[:, t+1, ...], dpt[:, t+1, ...])
+                        
+                    J_prev = utils.fuseTwoImages(I, J_prev)
+                    
+                    if self.use_gan:
+                        ## treat the agent as a Generator and update rewards
+                        raise NotImplementedError("gan loss has not been implemented")
+                    else:
+                        r = greedyReward(data_dict["u_est"][-1], u_in)
+
+                    reward.append(r)
+                    reward_wo_gamma.append(r)
+                    for tt in range(t):
+                        reward[tt] = reward[tt] + (0.9 ** (t - tt)) * r
+                    
+                    data_dict.append(I, J_prev, gaf, u_in)
+                    loc_dict.append(mu, l)
+                    baselines.append(b)
+                    
+                data_dict.toTensor()
+                loc_dict.toTensor()
+
+                baselines = torch.stack(baselines).transpose(1, 0)
+                log_pi = torch.stack(log_pi).transpose(1, 0)
+                R = torch.stack(reward).transpose(1, 0) * 1.0
+                R_wo_gamma = torch.stack(reward_wo_gamma).transpose(1, 0)
+                
+                loss_baseline = F.mse_loss(baselines, R)
+            
+                adjusted_reward = R - baselines.detach()              
+
+                ## Basic REINFORCE algorithm
+                loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
+                loss_reinforce = torch.mean(loss_reinforce, dim=0)
+                
+                loss = loss_reinforce + loss_baseline
+                
+            return losses.avg
     
     def save_checkpoint(self, state):
         """
