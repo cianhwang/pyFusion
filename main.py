@@ -15,9 +15,13 @@ def main(config):
     # instantiate data loaders
 #     if config.is_train:
     data_loader = load_davis_dataset(config.video_path, config.depth_path, config.seq, config.batch_size)
+    test_data_loader = load_davis_dataset("../datasets/DAVIS/test_davis_video_sublist.txt",
+                                          "../datasets/DAVIS/test_davis_dpt_sublist.txt", 
+                                          config.seq, 
+                                          config.batch_size)
 
     # instantiate trainer
-    trainer = Trainer(config, data_loader)
+    trainer = Trainer(config, data_loader, test_data_loader)
 
     # either train
     if config.is_train:

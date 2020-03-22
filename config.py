@@ -17,23 +17,25 @@ def add_argument_group(name):
 
 # data params
 data_arg = add_argument_group('Data Params')
-data_arg.add_argument('--batch_size', type=int, default=10,
+data_arg.add_argument('--batch_size', type=int, default=5,
                       help='# of images in each batch of data')
 data_arg.add_argument('--seq', type=int, default=3,
                       help='#seq of images in each batch of data')
 data_arg.add_argument('--std', type=int, default=0.17,
                       help='model distr std')
-data_arg.add_argument('--video_path', type=str, default="../datasets/DAVIS/test_davis_video_sublist.txt",
+data_arg.add_argument('--video_path', type=str, default="../datasets/DAVIS/test_davis_video_list.txt",
                       help='Directory in which to load frames')
-data_arg.add_argument('--depth_path', type=str, default="../datasets/DAVIS/test_davis_dpt_sublist.txt",
+data_arg.add_argument('--depth_path', type=str, default="../datasets/DAVIS/test_davis_dpt_list.txt",
                       help='Directory in which to load depth maps w.r.t. frames')
 
 # core network params
 core_arg = add_argument_group('Core Network Params')
-core_arg.add_argument('--channel', type=int, default=2,
+core_arg.add_argument('--channel', type=int, default=4,
                       help='channel of input images')
 core_arg.add_argument('--hidden_size', type=int, default=256,
                       help='hidden size of LSTM')
+core_arg.add_argument('--out_size', type=int, default=1,
+                      help='size of the location, 1 (dpt index) or 2 (img loc)')
 
 # training params
 train_arg = add_argument_group('Training Params')

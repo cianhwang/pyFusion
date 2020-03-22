@@ -19,6 +19,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from discriminator import *
+import toy_utils
 
 # In[2]:
 
@@ -71,17 +72,16 @@ class prettyfloat(float):
 
 class Trainer(object):
     
-    def __init__(self, config, data_loader):
+    def __init__(self, config, data_loader, test_data_loader):
         
         self.config = config  
         self.is_train = config.is_train
         
-        if self.is_train: #
-            self.train_loader = data_loader
-            self.num_train = len(self.train_loader.dataset)
-        else:
-            self.test_loader = data_loader
-            self.num_test = len(self.test_loader.dataset)
+#         if self.is_train: #
+        self.train_loader = data_loader
+        self.num_train = len(self.train_loader.dataset)
+        self.test_loader = test_data_loader
+        self.num_test = len(self.test_loader.dataset)
           
         self.use_cuda = config.use_cuda
         self.device = torch.device("cuda:0" if self.use_cuda else "cpu")
@@ -104,9 +104,10 @@ class Trainer(object):
         
         self.channel = config.channel
         self.hidden_size = config.hidden_size
+        self.out_size = config.out_size
         
         self.std = config.std
-        self.model = focusLocNet(self.std, self.channel, self.hidden_size).to(self.device)
+        self.model = focusLocNet(self.std, self.channel, self.hidden_size, self.out_size).to(self.device)
         self.RandomPolicy = RandomPolicy()
         self.CentralPolicy = CentralPolicy()
         
@@ -123,14 +124,11 @@ class Trainer(object):
             self.D = init_net(NLayerDiscriminator().to(self.device))
             self.lr_gan = config.init_lr_gan
             self.optimizerD = optim.Adam(filter(lambda p: p.requires_grad, self.D.parameters()), lr=self.lr_gan)
-            
-            
-        self.supervised_random_locs = torch.rand((len(self.train_loader), self.batch_size, 1, 2)).to(self.device)*2.0-1.0
-            
+                        
     def reset(self):
         h = [torch.zeros(1, self.batch_size, self.hidden_size).to(self.device),
                       torch.zeros(1, self.batch_size, self.hidden_size).to(self.device)]
-        l = torch.zeros(self.batch_size, 2).to(self.device)#*2-1
+        l = torch.rand(self.batch_size, self.out_size).to(self.device)-0.5 #-0.5~0.5
         return h, l
       
             
@@ -166,6 +164,7 @@ class Trainer(object):
             msg1 = "train loss: {:.3f}"
             msg = msg1
             print(msg.format(train_loss))
+            
 
             self.save_checkpoint(
                 {'epoch': epoch + 1,
@@ -173,6 +172,8 @@ class Trainer(object):
                  'optim_state': self.optimizer.state_dict(),
                  }
             )
+            test_loss = self.test(epoch)
+            print("test loss: {:.3f}".format(test_loss))
     
     def train_one_epoch(self, epoch):
     
@@ -214,11 +215,22 @@ class Trainer(object):
                 data_dict.append(I, J_prev, gaf, u_in)
                 loc_dict.append(l, l)
                 
+                ######### + supervised ###########
+                locs_gt = []
+                locs_gt.append(l)
+                
                 if self.use_gan:
                     ## build a discriminator
                     pass
 
                 for t in range(x_train.size(1)-1):
+                    
+                    ######### + supervised ###########
+                    obs = toy_utils.calc_obs_input((dpt[:, t] - 4.0)/6.0, l)
+                    l_gt = toy_utils.calc_locs_gt(obs)
+                    locs_gt.append(l_gt)
+                    
+                    
                     if self.channel == 1:
                         input_t = gaf
                     elif self.channel == 2:
@@ -227,7 +239,9 @@ class Trainer(object):
                     elif self.channel == 3:
                         input_t = I
                     else:
-                        input_t = torch.cat([I, gaf], dim = 1)
+#                         input_t = torch.cat([I, gaf], dim = 1)
+                        ######### + supervised ###########
+                        input_t = torch.cat([I, obs], dim = 1)
 
                     h, mu, l, b, p = self.model(input_t, l, h)
                     
@@ -251,7 +265,7 @@ class Trainer(object):
                     for tt in range(t):
                         reward[tt] = reward[tt] + (0.9 ** (t - tt)) * r
                     
-                    u_in = (data_dict["u_est"][-1]+u_in >0).float()
+#                     u_in = (data_dict["u_est"][-1]+u_in >0).float()
                     data_dict.append(I, J_prev, gaf, u_in)
                     loc_dict.append(mu, l)
                     baselines.append(b)
@@ -276,10 +290,8 @@ class Trainer(object):
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
                 
                 #loss = loss_reinforce + loss_baseline
-                random_loc = self.supervised_random_locs[i]
-                random_locs = torch.cat([random_loc, 1 - random_loc], dim = 1)
-                
-                loss = F.mse_loss(loc_dict['mus'][:, 1:], random_locs)
+
+                loss = F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
                 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -347,13 +359,14 @@ class Trainer(object):
             return losses["t_loss"].avg
     
     
-    def test(self):
+    def test(self, epoch):
         
         self.load_checkpoint()
-        self.model.eval()
+#         self.model.eval()
         losses = AverageMeter()
         
         with torch.no_grad():
+
             for i, (x_test, dpt) in enumerate(self.test_loader):
 
                 x_test = x_test.to(self.device)
@@ -377,11 +390,20 @@ class Trainer(object):
                 data_dict.append(I, J_prev, gaf, u_in)
                 loc_dict.append(l, l)
                 
+                ######### + supervised ###########
+                locs_gt = []
+                locs_gt.append(l)
+                
                 if self.use_gan:
                     ## build a discriminator
                     pass
 
                 for t in range(x_test.size(1)-1):
+                    ######### + supervised ###########
+                    obs = toy_utils.calc_obs_input((dpt[:, t] - 4.0)/6.0, l)
+                    l_gt = toy_utils.calc_locs_gt(obs)
+                    locs_gt.append(l_gt)
+                    
                     if self.channel == 1:
                         input_t = gaf
                     elif self.channel == 2:
@@ -390,7 +412,9 @@ class Trainer(object):
                     elif self.channel == 3:
                         input_t = I
                     else:
-                        input_t = torch.cat([I, gaf], dim = 1)
+#                         input_t = torch.cat([I, gaf], dim = 1)
+                        ######### + supervised ###########
+                        input_t = torch.cat([I, obs], dim = 1)
 
                     h, mu, l, b, p = self.model(input_t, l, h)
                     
@@ -430,8 +454,14 @@ class Trainer(object):
                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
                 
-                loss = loss_reinforce + loss_baseline
-                
+#                 loss = loss_reinforce + loss_baseline
+                loss = F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
+                losses.update(loss.item(), self.batch_size)
+            
+            
+            if self.use_tensorboard:
+                iteration = epoch
+                self.writer.add_scalar('Stats/test_loss', losses.avg, iteration)
             return losses.avg
     
     def save_checkpoint(self, state):

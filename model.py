@@ -17,7 +17,7 @@ from torch.distributions import Normal
 
 class focusLocNet(nn.Module):
     
-    def __init__(self, std, _channel, _hidden_size, _out_size = 2):
+    def __init__(self, std, _channel, _hidden_size, _out_size):
         super(focusLocNet, self).__init__()
         
         self.std = std
@@ -156,7 +156,7 @@ class CentralPolicy(object):
         return loc_n
 
 if __name__ == '__main__':
-    model = focusLocNet(0.17, 1, 256)
+    model = focusLocNet(0.17, 1, 256, 2)
     for n, p in model.named_parameters():
         if(p.requires_grad) and ("bias" not in n):
             print(n, p.max().item())

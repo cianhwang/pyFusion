@@ -98,38 +98,42 @@ def reconsLoss(J_est, J_gt):
 def depth_from_region(depthmap, loc):
     
     assert len(depthmap.shape) == 2
+    assert len(loc.shape) == 1
     
-    H, W = depthmap.shape
-    window_size =  min(H, W)//4
-    
-    x_l = int((loc[0]+1) * (H - window_size) / 2)
-    y_l = int((loc[1]+1) * (W - window_size) / 2)
-    x_r = int(min(H, x_l + window_size))
-    y_r = int(min(W, y_l + window_size))
+    if loc.shape[0] == 2:
+        H, W = depthmap.shape
+        window_size =  min(H, W)//4
 
-        #print("fun_depth_from_region: ({}, {})".format(x_l, y_l))
-    
-    if type(loc) == torch.Tensor:
-        median = torch.median(depthmap[x_l:x_r, y_l:y_r])
+        x_l = int((loc[0]+1) * (H - window_size) / 2)
+        y_l = int((loc[1]+1) * (W - window_size) / 2)
+        x_r = int(min(H, x_l + window_size))
+        y_r = int(min(W, y_l + window_size))
+
+            #print("fun_depth_from_region: ({}, {})".format(x_l, y_l))
+
+        if type(loc) == torch.Tensor:
+            value = torch.median(depthmap[x_l:x_r, y_l:y_r])
+        else:
+            value = np.median(depthmap[x_l:x_r, y_l:y_r])
     else:
-        median = np.median(depthmap[x_l:x_r, y_l:y_r])        
+        value = loc[0]*3000.0 + 4000.0
     
-    return median
+    return value
 
 def color_region(tensors, locs):
     
     S, C, H, W = tensors.size()
     assert S == locs.size(0)
-    
-    for i in range(S):
-        loc = locs[i]
-        window_size =  min(H, W)//4
-        x_l = int((loc[0]+1) * (H - window_size) / 2)
-        y_l = int((loc[1]+1) * (W - window_size) / 2)
-        x_r = int(min(H, x_l + window_size))
-        y_r = int(min(W, y_l + window_size))
-        tensors[i][1:, x_l:x_r, y_l:y_r] = -1
-        tensors[i][0, x_l:x_r, y_l:y_r] = 1
+    if locs.size(1) == 2:
+        for i in range(S):
+            loc = locs[i]
+            window_size =  min(H, W)//4
+            x_l = int((loc[0]+1) * (H - window_size) / 2)
+            y_l = int((loc[1]+1) * (W - window_size) / 2)
+            x_r = int(min(H, x_l + window_size))
+            y_r = int(min(W, y_l + window_size))
+            tensors[i][1:, x_l:x_r, y_l:y_r] = -1
+            tensors[i][0, x_l:x_r, y_l:y_r] = 1
     
     return tensors
 
