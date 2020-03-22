@@ -17,18 +17,19 @@ from torch.distributions import Normal
 
 class focusLocNet(nn.Module):
     
-    def __init__(self, std, _channel, _hidden_size):
+    def __init__(self, std, _channel, _hidden_size, _out_size = 2):
         super(focusLocNet, self).__init__()
         
         self.std = std
         self.channel = _channel
         self.hidden_size = _hidden_size
+        self.out_size = _out_size
 
         self.block1 = convBlock(self.channel, 16, 5, 2)
         self.block2 = convBlock(16, 32, 5, 2)
         self.block3 = convBlock(32, 32, 5, 2)
         self.block4 = convBlock(32, 64, 3, 2, isBn = False)
-        self.fc0 = nn.Linear(2, 128)
+        self.fc0 = nn.Linear(self.out_size, 128)
         self.fc1 = nn.Linear(768, 128)
         self.fc2 = fcBlock(128+128, 256)
         self.fc3 = fcBlock(256, 256, activation = None)
@@ -36,9 +37,16 @@ class focusLocNet(nn.Module):
 
         self.fc4 = fcBlock(self.hidden_size, 128)
         self.fc5_0 = fcBlock(128, 128)
-        self.fc5 = nn.Linear(128, 2)
+        self.fc5 = nn.Linear(128, self.out_size)
         self.fc6_0 = fcBlock(self.hidden_size, 128)
         self.fc6 = nn.Linear(128, 1)
+
+        torch.nn.init.kaiming_normal_(self.fc0.weight)
+        torch.nn.init.kaiming_normal_(self.fc1.weight)
+        torch.nn.init.kaiming_normal_(self.lstm.weight_hh_l0)
+        torch.nn.init.kaiming_normal_(self.lstm.weight_ih_l0)
+        torch.nn.init.kaiming_normal_(self.fc5.weight)
+        torch.nn.init.kaiming_normal_(self.fc6.weight)
         
     def forward(self, x, l_prev, h_prev):
         batch_size = x.size(0)
