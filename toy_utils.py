@@ -31,10 +31,9 @@ def calc_locs_gt(obss):
     
     ## output -> locs(B, 1)
     batch_size = obss.size(0)
-    obss_copy = obss.clone()
     locs = []
     for i in range(batch_size):
-        obs = obss_copy[i]
+        obs = obss[i]
         dist_vec = obs.flatten()
         dist_vec = dist_vec[(torch.abs(dist_vec) > 5e-2)]
         n, bins = np.histogram(dist_vec.cpu().detach().numpy())
@@ -42,10 +41,7 @@ def calc_locs_gt(obss):
         idx_sorted = np.argsort(n)[::-1]
         dist_to_move = (bins[idx_sorted[0]]+bins[idx_sorted[0]+1])/2
         locs.append(dist_to_move)
-        obs -= dist_to_move
-    
-    assert torch.all(torch.eq(obss, obss_copy)) == False
-    
+        
     locs = torch.FloatTensor(locs).view(batch_size, 1)
     if obss.is_cuda:
         locs = locs.cuda()
@@ -64,13 +60,18 @@ def calc_obs_input(dpts, locs):
     obss = dpts.clone()
     for i in range(batch_size):
         obs = obss[i]
-        loc = locs[i]
+        loc = torch.clamp(locs[i], obs.min().item(), obs.max().item())
         obs -= loc
     
     assert torch.all(torch.eq(obss, dpts)) == False
     
     return obss
-    
+
+# def t_sum(locs_list):
+#     loc1_copy = locs_list[0].clone()
+#     for loc in locs_list[1:]:
+#         loc1_copy += loc
+#     return loc1_copy
     
     
 

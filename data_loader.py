@@ -35,6 +35,7 @@ import torchvision
 from torchvision import transforms
 import re
 import torchvision.transforms.functional as TF
+from torch.utils.data.sampler import SubsetRandomSampler
 import random
 import numbers
 from PIL import Image
@@ -353,21 +354,35 @@ class SintelImageFolder(data.Dataset):
         return result
     
 class DAVISDataLoader():
-    def __init__(self, name, list_path, dpt_list_path, seq, _batch_size):
+    def __init__(self, name, list_path, dpt_list_path, seq, _batch_size, valid_size = 0.2, shuffle = True):
         if name == 'sintel':
             dataset = SintelImageFolder(list_path=list_path, dpt_list_path=dpt_list_path, seq = seq)
         else:
             dataset = DAVISImageFolder(list_path=list_path, dpt_list_path=dpt_list_path, seq = seq)
             
-        self.data_loader = torch.utils.data.DataLoader(dataset,
+        num_train = len(dataset)
+        indices = list(range(num_train))
+        split = int(np.floor(valid_size * num_train))
+        if shuffle:
+            np.random.shuffle(indices)
+        train_idx, valid_idx = indices[split:], indices[:split]
+        train_sampler = SubsetRandomSampler(train_idx)
+        valid_sampler = SubsetRandomSampler(valid_idx)
+            
+        self.train_loader = torch.utils.data.DataLoader(dataset,
                                                        batch_size=_batch_size,
+                                                       sampler=train_sampler,
+                                                       shuffle=False,
+                                                       num_workers=int(8))
+        self.valid_loader = torch.utils.data.DataLoader(dataset,
+                                                       batch_size=_batch_size,
+                                                       sampler=valid_sampler,
                                                        shuffle=False,
                                                        num_workers=int(8))
         self.dataset = dataset
 
     def load_data(self):
-
-        return self.data_loader
+        return (self.train_loader, self.valid_loader)
 
     def __len__(self):
 

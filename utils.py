@@ -116,7 +116,7 @@ def depth_from_region(depthmap, loc):
         else:
             value = np.median(depthmap[x_l:x_r, y_l:y_r])
     else:
-        value = loc[0]*3000.0 + 4000.0
+        value = np.clip(loc[0]*6000+4000, depthmap.min(), depthmap.max())
     
     return value
 
@@ -186,6 +186,7 @@ def getDefocuesImage(focusPos, J, dpt, threshold = 5e-2):
         focal_img = focal_img/127.5-1
         focal_img = n2t(focal_img)
         sim_autofocus_map = ((dpt_np - focusPos_np)[..., np.newaxis])/6000.0
+        assert (sim_autofocus_map.max() <= 1) and (sim_autofocus_map.min() >= -1)
         sim_autofocus_map = n2t(sim_autofocus_map)
         simAutofocusTensor.append(sim_autofocus_map)
         imageTensor.append(focal_img)

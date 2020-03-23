@@ -65,23 +65,26 @@ class easyAppendDict(object):
             
 class prettyfloat(float):
     def __repr__(self):
-        return "%0.3f" % self
+        return "%0.3f" % self    
 
 # In[3]:
 
 
 class Trainer(object):
     
-    def __init__(self, config, data_loader, test_data_loader):
+    def __init__(self, config, data_loader):
         
         self.config = config  
         self.is_train = config.is_train
         
-#         if self.is_train: #
-        self.train_loader = data_loader
-        self.num_train = len(self.train_loader.dataset)
-        self.test_loader = test_data_loader
-        self.num_test = len(self.test_loader.dataset)
+        if self.is_train: #
+            self.train_loader = data_loader[0]
+            self.num_train = len(self.train_loader.sampler.indices)
+            self.valid_loader = data_loader[1]
+            self.num_valid = len(self.valid_loader.sampler.indices)
+        else:
+            self.test_loader = data_loader
+            self.num_test = len(self.test_loader.dataset)
           
         self.use_cuda = config.use_cuda
         self.device = torch.device("cuda:0" if self.use_cuda else "cpu")
@@ -95,8 +98,8 @@ class Trainer(object):
         
         if self.use_tensorboard:
             tensorboard_dir = config.logs_dir
-            if not self.is_train:
-                tensorboard_dir = tensorboard_dir + '_test'
+#             if not self.is_train:
+#                 tensorboard_dir = tensorboard_dir + '_test'
             print('[*] Saving tensorboard logs to {}'.format(tensorboard_dir))
             if not os.path.exists(tensorboard_dir):
                 os.makedirs(tensorboard_dir)
@@ -146,8 +149,7 @@ class Trainer(object):
             
         print("\n[*] Train on {} samples.".format(
             self.num_train)
-        )
-           
+        )           
             
         self.model.train()
 
@@ -159,11 +161,15 @@ class Trainer(object):
             )
 
             # train for 1 epoch
-            train_loss = self.train_one_epoch(epoch)
+            train_loss, train_mse = self.train_one_epoch(epoch)
+            
+            # evaluate on validation set
+            valid_loss, valid_mse = self.validate(epoch)
 
-            msg1 = "train loss: {:.3f}"
-            msg = msg1
-            print(msg.format(train_loss))
+            msg1 = "train loss: {:.3f} - train mse: {:.3f}"
+            msg2 = " - val loss: {:.3f} - val mse: {:.3f}"
+            msg = msg1 + msg2
+            print(msg.format(train_loss, train_mse, valid_loss, valid_mse))
             
 
             self.save_checkpoint(
@@ -172,8 +178,6 @@ class Trainer(object):
                  'optim_state': self.optimizer.state_dict(),
                  }
             )
-            test_loss = self.test(epoch)
-            print("test loss: {:.3f}".format(test_loss))
     
     def train_one_epoch(self, epoch):
     
@@ -226,10 +230,11 @@ class Trainer(object):
                 for t in range(x_train.size(1)-1):
                     
                     ######### + supervised ###########
-                    obs = toy_utils.calc_obs_input((dpt[:, t] - 4.0)/6.0, l)
+                    obs = toy_utils.calc_obs_input((dpt[:, t] - 4.0)/6.0, sum(loc_dict['locs']))
                     l_gt = toy_utils.calc_locs_gt(obs)
                     locs_gt.append(l_gt)
-                    
+                    #print(sum(locs_gt).max(), sum(locs_gt).min())
+                    #assert (sum(locs_gt).max() <= 0.5) and (sum(locs_gt).min() >= -0.5)
                     
                     if self.channel == 1:
                         input_t = gaf
@@ -246,7 +251,9 @@ class Trainer(object):
                     h, mu, l, b, p = self.model(input_t, l, h)
                     
                     log_pi.append(p)
-                    I, gaf, u_in = utils.getDefocuesImage(l, x_train[:, t+1, ...], dpt[:, t+1, ...])
+                    loc_dict.append(mu, l)
+                    baselines.append(b)
+                    I, gaf, u_in = utils.getDefocuesImage(sum(loc_dict['locs']), x_train[:, t+1, ...], dpt[:, t+1, ...])
                         
                     J_prev = utils.fuseTwoImages(I, J_prev)
                     
@@ -267,8 +274,6 @@ class Trainer(object):
                     
 #                     u_in = (data_dict["u_est"][-1]+u_in >0).float()
                     data_dict.append(I, J_prev, gaf, u_in)
-                    loc_dict.append(mu, l)
-                    baselines.append(b)
                     
                 data_dict.toTensor()
                 loc_dict.toTensor()
@@ -277,9 +282,6 @@ class Trainer(object):
                 log_pi = torch.stack(log_pi).transpose(1, 0)
                 R = torch.stack(reward).transpose(1, 0) * 1.0
                 R_wo_gamma = torch.stack(reward_wo_gamma).transpose(1, 0)
-
-#                 R = -utils.reconsLoss(data_dict["J_est"][:, 1:].detach(), x_train[:, 1:])*100.0
-#                 R = R.unsqueeze(1).repeat(1, x_train.size(1)-1)
                 
                 loss_baseline = F.mse_loss(baselines, R)
             
@@ -330,7 +332,7 @@ class Trainer(object):
                 self.writer.add_scalar('Stats/total_loss', losses["t_loss"].avg, iteration)
                 self.writer.add_scalar('Stats/reinforce_loss', losses["r_loss"].avg, iteration)
                 self.writer.add_scalar('Stats/reward', rewards.avg, iteration)
-                self.writer.add_scalar('Stats/mseloss', mselosses.avg*1000, iteration)
+                self.writer.add_scalar('Stats/mseloss(x1000)', mselosses.avg*1000.0, iteration)
                 self.writer.add_scalars('Stats/grads', dict_grad, iteration)
                 
                 for n, p in self.model.named_parameters():
@@ -356,14 +358,122 @@ class Trainer(object):
                 rw_list = map(prettyfloat, R_wo_gamma.tolist()[0])
                 self.writer.add_text("reward log", '[%s]' % ', '.join(map(str, rw_list)), epoch)
 
-            return losses["t_loss"].avg
+            return losses["t_loss"].avg, mselosses.avg*1000.0
+        
+    
+    def validate(self, epoch):
+        
+        losses = AverageMeter()
+        mselosses = AverageMeter()
+
+        for i, (x_test, dpt) in enumerate(self.valid_loader):
+
+            x_test = x_test.to(self.device)
+            dpt = dpt.to(self.device)
+
+            self.batch_size = x_test.size(0)
+            self.seq = x_test.size(1)
+
+            h, l = self.reset()
+
+            data_dict = easyAppendDict("I_est", "J_est", "gaf_est", "u_est")
+            loc_dict  = easyAppendDict("mus", "locs")
+            log_pi = []
+            baselines = []
+            reward = []
+            reward_wo_gamma = []
+
+            I, gaf, u_in =  utils.getDefocuesImage(l, x_test[:, 0, ...], dpt[:, 0, ...])
+            J_prev = I 
+
+            data_dict.append(I, J_prev, gaf, u_in)
+            loc_dict.append(l, l)
+
+            ######### + supervised ###########
+            locs_gt = []
+            locs_gt.append(l)
+
+            if self.use_gan:
+                ## build a discriminator
+                pass
+
+            for t in range(x_test.size(1)-1):
+                ######### + supervised ###########
+                obs = toy_utils.calc_obs_input((dpt[:, t] - 4.0)/6.0, sum(loc_dict['locs']))
+                l_gt = toy_utils.calc_locs_gt(obs)
+                locs_gt.append(l_gt)
+
+                if self.channel == 1:
+                    input_t = gaf
+                elif self.channel == 2:
+                    Ig = 0.2125*I[:, 0:1] + 0.7154* I[:, 1:2]+ 0.0721* I[:, 2:]
+                    input_t = torch.cat([Ig, gaf], dim = 1)
+                elif self.channel == 3:
+                    input_t = I
+                else:
+#                         input_t = torch.cat([I, gaf], dim = 1)
+                    ######### + supervised ###########
+                    input_t = torch.cat([I, obs], dim = 1)
+
+                h, mu, l, b, p = self.model(input_t, l, h)
+
+                log_pi.append(p)
+                loc_dict.append(mu, l)
+                baselines.append(b)
+                I, gaf, u_in = utils.getDefocuesImage(sum(loc_dict['locs']), x_test[:, t+1, ...], dpt[:, t+1, ...])
+
+                J_prev = utils.fuseTwoImages(I, J_prev)
+
+                if self.use_gan:
+                    ## treat the agent as a Generator and update rewards
+                    raise NotImplementedError("gan loss has not been implemented")
+                else:
+                    r = greedyReward(data_dict["u_est"][-1], u_in)
+
+                reward.append(r)
+                reward_wo_gamma.append(r)
+                for tt in range(t):
+                    reward[tt] = reward[tt] + (0.9 ** (t - tt)) * r
+
+                data_dict.append(I, J_prev, gaf, u_in)
+
+
+            data_dict.toTensor()
+            loc_dict.toTensor()
+
+            baselines = torch.stack(baselines).transpose(1, 0)
+            log_pi = torch.stack(log_pi).transpose(1, 0)
+            R = torch.stack(reward).transpose(1, 0) * 1.0
+            R_wo_gamma = torch.stack(reward_wo_gamma).transpose(1, 0)
+
+            loss_baseline = F.mse_loss(baselines, R)
+
+            adjusted_reward = R - baselines.detach()              
+
+            ## Basic REINFORCE algorithm
+            loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
+            loss_reinforce = torch.mean(loss_reinforce, dim=0)
+
+#                 loss = loss_reinforce + loss_baseline
+            loss = F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
+            losses.update(loss.item(), self.batch_size)
+            mselosses.update(torch.mean(utils.reconsLoss(data_dict["J_est"][:, 1:], x_test[:, 1:]), dim = 0).item(), self.batch_size)
+
+            if self.use_tensorboard:
+                iteration = epoch
+                self.writer.add_scalar('Stats/valid_loss', losses.avg, iteration)
+                self.writer.add_scalar('Stats/valid_mseloss(x1000)', mselosses.avg*1000.0, iteration)
+                
+            return losses.avg, mselosses.avg*1000.0
     
     
-    def test(self, epoch):
+    def test(self):
         
         self.load_checkpoint()
-#         self.model.eval()
+        self.model.eval()
         losses = AverageMeter()
+        
+        raise NotImplementedError("test function needs inspection further.")
         
         with torch.no_grad():
 
