@@ -113,7 +113,7 @@ class convBlock(nn.Module):
 
 class fcBlock(nn.Module):
     
-    def __init__(self, in_feature, out_feature, activation = F.relu, isBn = False):
+    def __init__(self, in_feature, out_feature, activation = F.relu, isBn = True):
         super(fcBlock, self).__init__()
         self.isBn = isBn
         self.activation = activation

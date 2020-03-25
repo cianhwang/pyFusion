@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from discriminator import *
 import toy_utils
+import shutil
 
 # In[2]:
 
@@ -95,6 +96,7 @@ class Trainer(object):
         self.model_name = 'rfc'
         self.use_tensorboard = config.use_tensorboard
         self.is_plot = config.is_plot
+        self.best_loss = 1e10
         
         if self.use_tensorboard:
             tensorboard_dir = config.logs_dir
@@ -166,17 +168,21 @@ class Trainer(object):
             # evaluate on validation set
             valid_loss, valid_mse = self.validate(epoch)
 
+            is_best = valid_mse < self.best_loss
             msg1 = "train loss: {:.3f} - train mse: {:.3f}"
             msg2 = " - val loss: {:.3f} - val mse: {:.3f}"
+            if is_best:
+                msg2 += " [*]"
             msg = msg1 + msg2
             print(msg.format(train_loss, train_mse, valid_loss, valid_mse))
             
-
+            self.best_loss = min(valid_mse, self.best_loss)
             self.save_checkpoint(
                 {'epoch': epoch + 1,
                  'model_state': self.model.state_dict(),
                  'optim_state': self.optimizer.state_dict(),
-                 }
+                 'best_valid_mse': self.best_loss,
+                 }, is_best
             )
     
     def train_one_epoch(self, epoch):
@@ -574,18 +580,26 @@ class Trainer(object):
                 self.writer.add_scalar('Stats/test_loss', losses.avg, iteration)
             return losses.avg
     
-    def save_checkpoint(self, state):
+    def save_checkpoint(self, state, is_best):
         """
         Save a copy of the model so that it can be loaded at a future
         date.
         """
-        print("[*] Saving model to {}".format(self.ckpt_dir))
+#         print("[*] Saving model to {}".format(self.ckpt_dir))
 
         filename = self.model_name + '_ckpt.pth.tar'
         ckpt_path = os.path.join(self.ckpt_dir, filename)
         torch.save(state, ckpt_path)
         
-        print("[*] Saved model to {}".format(self.ckpt_dir))
+        
+        
+        if is_best:
+            filename = self.model_name + '_model_best.pth.tar'
+            shutil.copyfile(
+                ckpt_path, os.path.join(self.ckpt_dir, filename)
+            )
+        
+#         print("[*] Saved model to {}".format(self.ckpt_dir))
 
     def load_checkpoint(self):
         
@@ -600,6 +614,6 @@ class Trainer(object):
         self.model.load_state_dict(ckpt['model_state'])
         self.optimizer.load_state_dict(ckpt['optim_state'])   
         
-        print("[*] Loaded model from {}".format(self.ckpt_dir))
+#         print("[*] Loaded model from {}".format(self.ckpt_dir))
 
    
