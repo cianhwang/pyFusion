@@ -149,6 +149,7 @@ class Trainer(object):
         if self.resume:
             self.load_checkpoint()
             
+            
         print("\n[*] Train on {} samples.".format(
             self.num_train)
         )           
@@ -268,9 +269,9 @@ class Trainer(object):
                         raise NotImplementedError("gan loss has not been implemented")
                     else:
                         r = greedyReward(data_dict["u_est"][-1], u_in)
-#                         if t == x_train.size(1)-2:
-#                             for k in range(len(data_dict["J_est"])):
-#                                 r = r-utils.reconsLoss(data_dict["J_est"][k].detach(), x_train[:, k]) * 10.0
+                        if t == x_train.size(1)-2:
+                            for k in range(len(data_dict["J_est"])):
+                                r = r-utils.reconsLoss(data_dict["J_est"][k].detach(), x_train[:, k]) * 10.0
 #                         r = -utils.reconsLoss(J_prev.detach(), x_train[:, t+1]) * 100.0
 
                     reward.append(r)
@@ -297,9 +298,9 @@ class Trainer(object):
                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
                 
-                #loss = loss_reinforce + loss_baseline
+                loss = 0.1*loss_reinforce + loss_baseline
 
-                loss = F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
+                loss += F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
                 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -435,7 +436,11 @@ class Trainer(object):
                     raise NotImplementedError("gan loss has not been implemented")
                 else:
                     r = greedyReward(data_dict["u_est"][-1], u_in)
-
+                    if t == x_test.size(1)-2:
+                        for k in range(len(data_dict["J_est"])):
+                            r = r-utils.reconsLoss(data_dict["J_est"][k].detach(), x_test[:, k]) * 10.0
+#                     r = -utils.reconsLoss(J_prev.detach(), x_test[:, t+1]) * 100.0
+                    
                 reward.append(r)
                 reward_wo_gamma.append(r)
                 for tt in range(t):
@@ -460,8 +465,8 @@ class Trainer(object):
             loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
             loss_reinforce = torch.mean(loss_reinforce, dim=0)
 
-#                 loss = loss_reinforce + loss_baseline
-            loss = F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
+            loss = 0.1*loss_reinforce + loss_baseline
+            loss += F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
             losses.update(loss.item(), self.batch_size)
             mselosses.update(torch.mean(utils.reconsLoss(data_dict["J_est"][:, 1:], x_test[:, 1:]), dim = 0).item(), self.batch_size)
 
@@ -611,9 +616,10 @@ class Trainer(object):
 
         # load variables from checkpoint
         self.start_epoch = ckpt['epoch']
+        self.best_loss = ckpt['best_valid_mse']
         self.model.load_state_dict(ckpt['model_state'])
         self.optimizer.load_state_dict(ckpt['optim_state'])   
         
-#         print("[*] Loaded model from {}".format(self.ckpt_dir))
+        print("[*] Loaded model from {}".format(self.ckpt_dir))
 
    
