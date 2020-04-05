@@ -169,7 +169,7 @@ class Trainer(object):
             # evaluate on validation set
             valid_loss, valid_mse = self.validate(epoch)
 
-            is_best = valid_mse < self.best_loss
+            is_best = (train_mse*4 + valid_mse)/5 < self.best_loss
             msg1 = "train loss: {:.3f} - train mse: {:.3f}"
             msg2 = " - val loss: {:.3f} - val mse: {:.3f}"
             if is_best:
@@ -177,7 +177,7 @@ class Trainer(object):
             msg = msg1 + msg2
             print(msg.format(train_loss, train_mse, valid_loss, valid_mse))
             
-            self.best_loss = min(valid_mse, self.best_loss)
+            self.best_loss = min((train_mse*4 + valid_mse)/5, self.best_loss)
             self.save_checkpoint(
                 {'epoch': epoch + 1,
                  'model_state': self.model.state_dict(),
@@ -268,11 +268,11 @@ class Trainer(object):
                         ## treat the agent as a Generator and update rewards
                         raise NotImplementedError("gan loss has not been implemented")
                     else:
-                        r = greedyReward(data_dict["u_est"][-1], u_in)
-                        if t == x_train.size(1)-2:
-                            for k in range(len(data_dict["J_est"])):
-                                r = r-utils.reconsLoss(data_dict["J_est"][k].detach(), x_train[:, k]) * 10.0
-#                         r = -utils.reconsLoss(J_prev.detach(), x_train[:, t+1]) * 100.0
+#                         r = greedyReward(data_dict["u_est"][-1], u_in)
+#                         if t == x_train.size(1)-2:
+#                             for k in range(len(data_dict["J_est"])):
+#                                 r = r-utils.reconsLoss(data_dict["J_est"][k].detach(), x_train[:, k]) * 10.0
+                        r = -utils.reconsLoss(J_prev.detach(), x_train[:, t+1]) * 100.0
 
                     reward.append(r)
                     reward_wo_gamma.append(r)
@@ -435,11 +435,11 @@ class Trainer(object):
                     ## treat the agent as a Generator and update rewards
                     raise NotImplementedError("gan loss has not been implemented")
                 else:
-                    r = greedyReward(data_dict["u_est"][-1], u_in)
-                    if t == x_test.size(1)-2:
-                        for k in range(len(data_dict["J_est"])):
-                            r = r-utils.reconsLoss(data_dict["J_est"][k].detach(), x_test[:, k]) * 10.0
-#                     r = -utils.reconsLoss(J_prev.detach(), x_test[:, t+1]) * 100.0
+#                     r = greedyReward(data_dict["u_est"][-1], u_in)
+#                     if t == x_test.size(1)-2:
+#                         for k in range(len(data_dict["J_est"])):
+#                             r = r-utils.reconsLoss(data_dict["J_est"][k].detach(), x_test[:, k]) * 10.0
+                    r = -utils.reconsLoss(J_prev.detach(), x_test[:, t+1]) * 100.0
                     
                 reward.append(r)
                 reward_wo_gamma.append(r)
@@ -590,7 +590,7 @@ class Trainer(object):
         Save a copy of the model so that it can be loaded at a future
         date.
         """
-#         print("[*] Saving model to {}".format(self.ckpt_dir))
+        print("[*] Saving model to {}".format(self.ckpt_dir))
 
         filename = self.model_name + '_ckpt.pth.tar'
         ckpt_path = os.path.join(self.ckpt_dir, filename)
@@ -604,7 +604,7 @@ class Trainer(object):
                 ckpt_path, os.path.join(self.ckpt_dir, filename)
             )
         
-#         print("[*] Saved model to {}".format(self.ckpt_dir))
+        print("[*] Saved model to {}".format(self.ckpt_dir))
 
     def load_checkpoint(self):
         
