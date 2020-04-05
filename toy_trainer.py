@@ -10,20 +10,21 @@ import torch.nn.functional as F
 class Trainer(object):
     
     def __init__(self, data_loader):
-        self.channel = 4
+        self.channel = 1
         self.hidden_size = 256
-        self.batch_size = 5
-        self.seq = 3
-        self.model = focusLocNet(0.17, self.channel, self.hidden_size, 1).cuda()
+        self.batch_size = 16
+        self.seq = 6
+        self.out_size = 1
+        self.model = focusLocNet(0.17, self.channel, self.hidden_size, self.out_size).cuda()
         self.data_loader = data_loader
         self.epochs = 50
         self.lr = 1e-4
         self.optimizer= optim.Adam(filter(lambda p: p.requires_grad, self.model.parameters()), lr=self.lr)
         
-    def reset(self):
-        h = [torch.zeros(1, self.batch_size, self.hidden_size).cuda(),
-                      torch.zeros(1, self.batch_size, self.hidden_size).cuda()]
-        l = torch.rand(self.batch_size, 1).cuda()-0.5
+    def reset(self, _batch_size):
+        h = [torch.zeros(1, _batch_size, self.hidden_size).cuda(),
+                      torch.zeros(1, _batch_size, self.hidden_size).cuda()]
+        l = torch.rand(_batch_size, self.out_size).cuda()
         return h, l
     
     def train(self):
@@ -34,23 +35,25 @@ class Trainer(object):
     def train_one_epoch(self, epoch):
         losses = AverageMeter()
         for i, (X, y) in enumerate(self.data_loader):
-            X, y = X.cuda(), (y.cuda()-4.0)/6.0
-            assert (X.max() <= 1) and (X.min() >= -1) and (y.max() <= 0.5) and (y.min() >= -0.5)
+            X, y = X.cuda(), y.cuda()
+            log_pi = []
             locs = []
-            locs_gt = []
-            h, l = self.reset()
+            baselines = []
+            _batch_size = X.size(0)
+            h, l = self.reset(_batch_size)
             for t in range(self.seq-1):
-                obs = calc_obs_input(y[:, t], l)
-                l_gt = calc_locs_gt(obs)
-                input_t = torch.cat([X[:, t], obs], dim = 1)
-                assert input_t.size() == (self.batch_size, 4, 64, 128)
-                h, mu, l, b, p = self.model(input_t, l, h)
+                h, mu, l, b, p = self.model(X[:, t], l, h)
+                log_pi.append(p)
                 locs.append(l)
-                locs_gt.append(l_gt)
+                baselines.append(b)
+                
             locs = torch.stack(locs, dim = 1)
-            locs_gt = torch.stack(locs_gt, dim = 1)
+            baselines = torch.stack(baselines).transpose(1, 0)
+            log_pi = torch.stack(log_pi).transpose(1, 0)
             
-            loss = F.mse_loss(locs, locs_gt)
+            R = torch.stack(reward).transpose(1, 0) * 1.0
+            
+            loss = F.mse_loss(locs, y)
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
@@ -63,9 +66,9 @@ class Trainer(object):
     
     
 if __name__ == '__main__':
-#     data_loader = torch.utils.data.DataLoader(toyDataset(100, (3, 3, 64, 128), (3, 1, 64, 128)), #loc has less size than X
-#                                                        batch_size = 5,
-#                                                        shuffle=True, 
-#                                                        num_workers=8)
-    data_loader = load_davis_dataset('../datasets/DAVIS/test_davis_video_sublist.txt', '../datasets/DAVIS/test_davis_dpt_sublist.txt', seq=3, batch_size = 5)
+    data_loader = torch.utils.data.DataLoader(toyDataset(100, (6, 1, 64, 128), (5, 1)), #loc has less size than X
+                                                       batch_size = 16,
+                                                       shuffle=True, 
+                                                       num_workers=8)
     Trainer(data_loader).train()
+    
