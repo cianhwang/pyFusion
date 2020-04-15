@@ -269,9 +269,10 @@ class Trainer(object):
                         raise NotImplementedError("gan loss has not been implemented")
                     else:
 #                         r = greedyReward(data_dict["u_est"][-1], u_in)
+#                         r = greedyReward(u_in, u_in)
 #                         if t == x_train.size(1)-2:
 #                             for k in range(len(data_dict["J_est"])):
-#                                 r = r-utils.reconsLoss(data_dict["J_est"][k].detach(), x_train[:, k]) * 10.0
+#                                 r = r-utils.reconsLoss(data_dict["J_est"][k].detach(), x_train[:, k]) * 100.0
                         r = -utils.reconsLoss(J_prev.detach(), x_train[:, t+1]) * 100.0
 
                     reward.append(r)
@@ -299,7 +300,6 @@ class Trainer(object):
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
                 
                 loss = 0.1*loss_reinforce + loss_baseline
-
                 loss += F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
                 
                 self.optimizer.zero_grad()
@@ -436,9 +436,10 @@ class Trainer(object):
                     raise NotImplementedError("gan loss has not been implemented")
                 else:
 #                     r = greedyReward(data_dict["u_est"][-1], u_in)
+#                     r = greedyReward(u_in, u_in)
 #                     if t == x_test.size(1)-2:
 #                         for k in range(len(data_dict["J_est"])):
-#                             r = r-utils.reconsLoss(data_dict["J_est"][k].detach(), x_test[:, k]) * 10.0
+#                             r = r-utils.reconsLoss(data_dict["J_est"][k].detach(), x_test[:, k]) * 100.0
                     r = -utils.reconsLoss(J_prev.detach(), x_test[:, t+1]) * 100.0
                     
                 reward.append(r)
@@ -575,8 +576,8 @@ class Trainer(object):
                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
                 
-#                 loss = loss_reinforce + loss_baseline
-                loss = F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
+                loss = loss_reinforce + loss_baseline
+                loss += F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
                 losses.update(loss.item(), self.batch_size)
             
             
@@ -590,7 +591,7 @@ class Trainer(object):
         Save a copy of the model so that it can be loaded at a future
         date.
         """
-        print("[*] Saving model to {}".format(self.ckpt_dir))
+#         print("[*] Saving model to {}".format(self.ckpt_dir))
 
         filename = self.model_name + '_ckpt.pth.tar'
         ckpt_path = os.path.join(self.ckpt_dir, filename)
@@ -604,7 +605,7 @@ class Trainer(object):
                 ckpt_path, os.path.join(self.ckpt_dir, filename)
             )
         
-        print("[*] Saved model to {}".format(self.ckpt_dir))
+#         print("[*] Saved model to {}".format(self.ckpt_dir))
 
     def load_checkpoint(self):
         
