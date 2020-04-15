@@ -237,8 +237,9 @@ class Trainer(object):
                 for t in range(x_train.size(1)-1):
                     
                     ######### + supervised ###########
-                    obs = toy_utils.calc_obs_input((dpt[:, t] - 4.0)/6.0, sum(loc_dict['locs']))
-                    l_gt = toy_utils.calc_locs_gt(obs)
+                    obs = toy_utils.calc_obs_input((dpt[:, t] - 4.0)/6.0, l)
+                    l_gt = toy_utils.calc_locs_gt(obs) + locs_gt[-1]
+                    l_gt = torch.clamp(l_gt, -0.5, 0.5)
                     locs_gt.append(l_gt)
                     #print(sum(locs_gt).max(), sum(locs_gt).min())
                     #assert (sum(locs_gt).max() <= 0.5) and (sum(locs_gt).min() >= -0.5)
@@ -254,13 +255,16 @@ class Trainer(object):
 #                         input_t = torch.cat([I, gaf], dim = 1)
                         ######### + supervised ###########
                         input_t = torch.cat([I, obs], dim = 1)
-
+        
+                    l *= 2
                     h, mu, l, b, p = self.model(input_t, l, h)
+                    mu /= 2
+                    l /= 2
                     
                     log_pi.append(p)
                     loc_dict.append(mu, l)
                     baselines.append(b)
-                    I, gaf, u_in = utils.getDefocuesImage(sum(loc_dict['locs']), x_train[:, t+1, ...], dpt[:, t+1, ...])
+                    I, gaf, u_in = utils.getDefocuesImage(l, x_train[:, t+1, ...], dpt[:, t+1, ...])
                         
                     J_prev = utils.fuseTwoImages(I, J_prev)
                     
@@ -299,8 +303,8 @@ class Trainer(object):
                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
                 
-                loss = 0.1*loss_reinforce + loss_baseline
-                loss += F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
+#                 loss = 0.1*loss_reinforce + loss_baseline
+                loss = F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
                 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -406,8 +410,9 @@ class Trainer(object):
 
             for t in range(x_test.size(1)-1):
                 ######### + supervised ###########
-                obs = toy_utils.calc_obs_input((dpt[:, t] - 4.0)/6.0, sum(loc_dict['locs']))
-                l_gt = toy_utils.calc_locs_gt(obs)
+                obs = toy_utils.calc_obs_input((dpt[:, t] - 4.0)/6.0, l)
+                l_gt = toy_utils.calc_locs_gt(obs) + locs_gt[-1]
+                l_gt = torch.clamp(l_gt, -0.5, 0.5) 
                 locs_gt.append(l_gt)
 
                 if self.channel == 1:
@@ -422,12 +427,15 @@ class Trainer(object):
                     ######### + supervised ###########
                     input_t = torch.cat([I, obs], dim = 1)
 
+                l *= 2
                 h, mu, l, b, p = self.model(input_t, l, h)
+                mu /= 2
+                l /= 2
 
                 log_pi.append(p)
                 loc_dict.append(mu, l)
                 baselines.append(b)
-                I, gaf, u_in = utils.getDefocuesImage(sum(loc_dict['locs']), x_test[:, t+1, ...], dpt[:, t+1, ...])
+                I, gaf, u_in = utils.getDefocuesImage(l, x_test[:, t+1, ...], dpt[:, t+1, ...])
 
                 J_prev = utils.fuseTwoImages(I, J_prev)
 
@@ -466,8 +474,8 @@ class Trainer(object):
             loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
             loss_reinforce = torch.mean(loss_reinforce, dim=0)
 
-            loss = 0.1*loss_reinforce + loss_baseline
-            loss += F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
+#             loss = 0.1*loss_reinforce + loss_baseline
+            loss = F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
             losses.update(loss.item(), self.batch_size)
             mselosses.update(torch.mean(utils.reconsLoss(data_dict["J_est"][:, 1:], x_test[:, 1:]), dim = 0).item(), self.batch_size)
 
