@@ -49,6 +49,8 @@ train_arg.add_argument('--use_gan', type=str2bool, default=False,
                        help='Whether to use GAN network/loss during training')
 train_arg.add_argument('--init_lr_gan', type=float, default=1e-4,
                        help='Initial learning rate value for Discriminator if GAN is utilized')
+train_arg.add_argument('--rl_loss', type=str2bool, default=True,
+                       help='Whether to use rl loss during training')
 
 # other params
 misc_arg = add_argument_group('Misc.')

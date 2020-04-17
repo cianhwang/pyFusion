@@ -122,6 +122,7 @@ class Trainer(object):
         self.seq = config.seq
         self.lr = config.init_lr
         self.optimizer= optim.Adam(filter(lambda p: p.requires_grad, self.model.parameters()), lr=self.lr)
+        self.rl_loss = config.rl_loss
         
         self.use_gan = config.use_gan
         if self.use_gan:
@@ -256,10 +257,10 @@ class Trainer(object):
                         ######### + supervised ###########
                         input_t = torch.cat([I, obs], dim = 1)
         
-                    l *= 2
+                    l = l*2.0
                     h, mu, l, b, p = self.model(input_t, l, h)
-                    mu /= 2
-                    l /= 2
+                    mu = mu /2.0
+                    l = l/2.0
                     
                     log_pi.append(p)
                     loc_dict.append(mu, l)
@@ -303,8 +304,11 @@ class Trainer(object):
                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
                 
-#                 loss = 0.1*loss_reinforce + loss_baseline
-                loss = F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
+                if self.rl_loss:
+                    loss = 0.1*loss_reinforce + loss_baseline
+                else:
+                    loss = 0 * (loss_reinforce + loss_baseline)
+                loss += F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
                 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -427,10 +431,10 @@ class Trainer(object):
                     ######### + supervised ###########
                     input_t = torch.cat([I, obs], dim = 1)
 
-                l *= 2
+                l = l*2.0
                 h, mu, l, b, p = self.model(input_t, l, h)
-                mu /= 2
-                l /= 2
+                mu = mu /2.0
+                l = l/2.0
 
                 log_pi.append(p)
                 loc_dict.append(mu, l)
@@ -474,8 +478,11 @@ class Trainer(object):
             loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
             loss_reinforce = torch.mean(loss_reinforce, dim=0)
 
-#             loss = 0.1*loss_reinforce + loss_baseline
-            loss = F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
+            if self.rl_loss:
+                loss = 0.1*loss_reinforce + loss_baseline
+            else:
+                loss = 0 * (loss_reinforce + loss_baseline)
+            loss += F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
             losses.update(loss.item(), self.batch_size)
             mselosses.update(torch.mean(utils.reconsLoss(data_dict["J_est"][:, 1:], x_test[:, 1:]), dim = 0).item(), self.batch_size)
 
