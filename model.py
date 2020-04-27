@@ -79,7 +79,7 @@ class focusLocNet(nn.Module):
         pos = mu + noise
 
         # bound between [-1, 1]
-        pos = torch.tanh(pos)
+        pos = torch.clamp(pos, -1, 1)
 
         log_pi = Normal(mu, self.std).log_prob(pos)
         log_pi = torch.sum(log_pi, dim=1)

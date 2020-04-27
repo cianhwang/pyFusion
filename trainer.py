@@ -96,7 +96,7 @@ class Trainer(object):
         self.model_name = 'rfc'
         self.use_tensorboard = config.use_tensorboard
         self.is_plot = config.is_plot
-        self.best_loss = 1e10
+        self.best_loss = 0
         
         if self.use_tensorboard:
             tensorboard_dir = config.logs_dir
@@ -134,7 +134,7 @@ class Trainer(object):
     def reset(self):
         h = [torch.zeros(1, self.batch_size, self.hidden_size).to(self.device),
                       torch.zeros(1, self.batch_size, self.hidden_size).to(self.device)]
-        l = torch.rand(self.batch_size, self.out_size).to(self.device)-0.5 #-0.5~0.5
+        l = torch.rand(self.batch_size, self.out_size).to(self.device)*2.0-1.0 #-0.5~0.5
         return h, l
       
             
@@ -165,20 +165,20 @@ class Trainer(object):
             )
 
             # train for 1 epoch
-            train_loss, train_mse = self.train_one_epoch(epoch)
+            train_loss, train_rw = self.train_one_epoch(epoch)
             
             # evaluate on validation set
-            valid_loss, valid_mse = self.validate(epoch)
+            valid_loss, valid_rw = self.validate(epoch)
 
-            is_best = (train_mse*4 + valid_mse)/5 < self.best_loss
-            msg1 = "train loss: {:.3f} - train mse: {:.3f}"
-            msg2 = " - val loss: {:.3f} - val mse: {:.3f}"
+            is_best = valid_rw >= self.best_loss
+            msg1 = "train loss: {:.3f} - train reward: {:.3f}"
+            msg2 = " - val loss: {:.3f} - val reward: {:.3f}"
             if is_best:
                 msg2 += " [*]"
             msg = msg1 + msg2
-            print(msg.format(train_loss, train_mse, valid_loss, valid_mse))
+            print(msg.format(train_loss, train_rw, valid_loss, valid_rw))
             
-            self.best_loss = min((train_mse*4 + valid_mse)/5, self.best_loss)
+            self.best_loss = max(valid_rw, self.best_loss)
             self.save_checkpoint(
                 {'epoch': epoch + 1,
                  'model_state': self.model.state_dict(),
@@ -204,93 +204,49 @@ class Trainer(object):
         tic = time.time()
         
         with tqdm(total=self.num_train) as pbar:
-            for i, (x_train, dpt) in enumerate(self.train_loader):
+            for i, x_train in enumerate(self.train_loader):
 
                 x_train = x_train.to(self.device)
-                dpt = dpt.to(self.device)
 
                 self.batch_size = x_train.size(0)
-                self.seq = x_train.size(1)
                 
                 h, l = self.reset()
-                # data shape: x_train (B, Seq, C, H, W)
-                data_dict = easyAppendDict("I_est", "J_est", "gaf_est", "u_est")
-                loc_dict  = easyAppendDict("mus", "locs")
+
+                mus = []
+                locs = []
                 log_pi = []
                 baselines = []
                 reward = []
                 reward_wo_gamma = []
-
-                I, gaf, u_in =  utils.getDefocuesImage(l, x_train[:, 0, ...], dpt[:, 0, ...])
-                J_prev = I #x_train[:, 0, ...] ## set J_prev to be first frame of the image sequences
-
-                data_dict.append(I, J_prev, gaf, u_in)
-                loc_dict.append(l, l)
-                
-                ######### + supervised ###########
-                locs_gt = []
-                locs_gt.append(l)
                 
                 if self.use_gan:
                     ## build a discriminator
                     pass
 
-                for t in range(x_train.size(1)-1):
+                for t in range(1):
                     
-                    ######### + supervised ###########
-                    obs = toy_utils.calc_obs_input((dpt[:, t] - 4.0)/6.0, l)
-                    l_gt = toy_utils.calc_locs_gt(obs) + locs_gt[-1]
-                    l_gt = torch.clamp(l_gt, -0.5, 0.5)
-                    locs_gt.append(l_gt)
-                    #print(sum(locs_gt).max(), sum(locs_gt).min())
-                    #assert (sum(locs_gt).max() <= 0.5) and (sum(locs_gt).min() >= -0.5)
+                    input_t = x_train
                     
-                    if self.channel == 1:
-                        input_t = gaf
-                    elif self.channel == 2:
-                        Ig = 0.2125*I[:, 0:1] + 0.7154* I[:, 1:2]+ 0.0721* I[:, 2:]
-                        input_t = torch.cat([Ig, gaf], dim = 1)
-                    elif self.channel == 3:
-                        input_t = I
-                    else:
-#                         input_t = torch.cat([I, gaf], dim = 1)
-                        ######### + supervised ###########
-                        input_t = torch.cat([I, obs], dim = 1)
-        
-                    l = l*2.0
                     h, mu, l, b, p = self.model(input_t, l, h)
-                    mu = mu /2.0
-                    l = l/2.0
-                    
+
                     log_pi.append(p)
-                    loc_dict.append(mu, l)
+                    mus.append(mu)
+                    locs.append(l)
                     baselines.append(b)
-                    I, gaf, u_in = utils.getDefocuesImage(l, x_train[:, t+1, ...], dpt[:, t+1, ...])
-                        
-                    J_prev = utils.fuseTwoImages(I, J_prev)
                     
                     if self.use_gan:
                         ## treat the agent as a Generator and update rewards
                         raise NotImplementedError("gan loss has not been implemented")
                     else:
-#                         r = greedyReward(data_dict["u_est"][-1], u_in)
-#                         r = greedyReward(u_in, u_in)
-#                         if t == x_train.size(1)-2:
-#                             for k in range(len(data_dict["J_est"])):
-#                                 r = r-utils.reconsLoss(data_dict["J_est"][k].detach(), x_train[:, k]) * 100.0
-                        r = -utils.reconsLoss(J_prev.detach(), x_train[:, t+1]) * 100.0
+                        r = greedyReward(input_t, l)
 
                     reward.append(r)
                     reward_wo_gamma.append(r)
                     for tt in range(t):
                         reward[tt] = reward[tt] + (0.9 ** (t - tt)) * r
-                    
-#                     u_in = (data_dict["u_est"][-1]+u_in >0).float()
-                    data_dict.append(I, J_prev, gaf, u_in)
-                    
-                data_dict.toTensor()
-                loc_dict.toTensor()
 
+                locs = torch.stack(locs).squeeze()
+                mus = torch.stack(mus).squeeze()
                 baselines = torch.stack(baselines).transpose(1, 0)
                 log_pi = torch.stack(log_pi).transpose(1, 0)
                 R = torch.stack(reward).transpose(1, 0) * 1.0
@@ -304,11 +260,8 @@ class Trainer(object):
                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
                 
-                if self.rl_loss:
-                    loss = 0.1*loss_reinforce + loss_baseline
-                else:
-                    loss = 0 * (loss_reinforce + loss_baseline)
-                loss += F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
+
+                loss = loss_reinforce + loss_baseline
                 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -320,8 +273,6 @@ class Trainer(object):
 
                 rewards.update(torch.mean(torch.sum(R, dim = 1),dim = 0).item(),self.batch_size)
                 
-                mselosses.update(torch.mean(utils.reconsLoss(data_dict["J_est"][:, 1:], x_train[:, 1:]), dim = 0).item(), self.batch_size)
-
                 # measure elapsed time
                 toc = time.time()
                 batch_time.update(toc-tic)
@@ -334,9 +285,6 @@ class Trainer(object):
                     )
                 )
                 pbar.update(self.batch_size)
-                
-                dict_grad = {}
-
 
             if self.use_tensorboard:
                 iteration = epoch#*len(self.train_loader)# + i
@@ -347,124 +295,73 @@ class Trainer(object):
                 self.writer.add_scalar('Stats/total_loss', losses["t_loss"].avg, iteration)
                 self.writer.add_scalar('Stats/reinforce_loss', losses["r_loss"].avg, iteration)
                 self.writer.add_scalar('Stats/reward', rewards.avg, iteration)
-                self.writer.add_scalar('Stats/mseloss(x1000)', mselosses.avg*1000.0, iteration)
-                self.writer.add_scalars('Stats/grads', dict_grad, iteration)
                 
                 for n, p in self.model.named_parameters():
                     if(p.requires_grad) and ("bias" not in n) and ("bn" not in n):
-#                         dict_grad[str(n)+'_max'] = p.abs().max().item()
-#                         dict_grad[str(n)+'_avg'] = p.abs().mean().item()
                         self.writer.add_histogram('hist/'+n, p, iteration)
 
                     
             if self.use_tensorboard and self.is_plot:
-                defocused = utils.color_region(data_dict["I_est"][0], loc_dict["locs"][0])
-                pred = data_dict["J_est"][0]
-                gt = utils.color_region(x_train[0], loc_dict["mus"][0])
-#                 gaf = data_dict["gaf_est"][0].repeat(1, 3, 1, 1)
-#                 gaf = utils.color_region(gaf, loc_dict["mus"][0])
-                u_in = data_dict["u_est"][0].repeat(1, 3, 1, 1)
-#                 u_in = torch.cat([u_in[:1], u_in[1:] - u_in[:-1]], dim = 0)
-                u_in = utils.color_region(u_in, loc_dict["mus"][0])*2-1
-                display_tensor = torch.cat([defocused, pred, gt, u_in], dim = 0)
-                display_grid = torchvision.utils.make_grid(display_tensor/2+0.5, nrow = self.seq)
+
+                defocused = utils.color_region(x_train.repeat(1, 3, 1, 1), locs)
+                display_tensor = defocused
+                display_grid = torchvision.utils.make_grid(display_tensor/2+0.5, nrow = self.batch_size)
                 self.writer.add_image('Visualization', display_grid, epoch)
                 
                 rw_list = map(prettyfloat, R_wo_gamma.tolist()[0])
                 self.writer.add_text("reward log", '[%s]' % ', '.join(map(str, rw_list)), epoch)
 
-            return losses["t_loss"].avg, mselosses.avg*1000.0
+            return losses["t_loss"].avg, rewards.avg
         
     
     def validate(self, epoch):
         
         losses = AverageMeter()
-        mselosses = AverageMeter()
+        rewards = AverageMeter()
 
-        for i, (x_test, dpt) in enumerate(self.valid_loader):
+        for i, x_train in enumerate(self.valid_loader):
 
-            x_test = x_test.to(self.device)
-            dpt = dpt.to(self.device)
+            x_train = x_train.to(self.device)
 
-            self.batch_size = x_test.size(0)
-            self.seq = x_test.size(1)
+            self.batch_size = x_train.size(0)
 
             h, l = self.reset()
 
-            data_dict = easyAppendDict("I_est", "J_est", "gaf_est", "u_est")
-            loc_dict  = easyAppendDict("mus", "locs")
+            mus = []
+            locs = []
             log_pi = []
             baselines = []
             reward = []
             reward_wo_gamma = []
 
-            I, gaf, u_in =  utils.getDefocuesImage(l, x_test[:, 0, ...], dpt[:, 0, ...])
-            J_prev = I 
-
-            data_dict.append(I, J_prev, gaf, u_in)
-            loc_dict.append(l, l)
-
-            ######### + supervised ###########
-            locs_gt = []
-            locs_gt.append(l)
-
             if self.use_gan:
                 ## build a discriminator
                 pass
 
-            for t in range(x_test.size(1)-1):
-                ######### + supervised ###########
-                obs = toy_utils.calc_obs_input((dpt[:, t] - 4.0)/6.0, l)
-                l_gt = toy_utils.calc_locs_gt(obs) + locs_gt[-1]
-                l_gt = torch.clamp(l_gt, -0.5, 0.5) 
-                locs_gt.append(l_gt)
+            for t in range(1):
 
-                if self.channel == 1:
-                    input_t = gaf
-                elif self.channel == 2:
-                    Ig = 0.2125*I[:, 0:1] + 0.7154* I[:, 1:2]+ 0.0721* I[:, 2:]
-                    input_t = torch.cat([Ig, gaf], dim = 1)
-                elif self.channel == 3:
-                    input_t = I
-                else:
-#                         input_t = torch.cat([I, gaf], dim = 1)
-                    ######### + supervised ###########
-                    input_t = torch.cat([I, obs], dim = 1)
+                input_t = x_train
 
-                l = l*2.0
                 h, mu, l, b, p = self.model(input_t, l, h)
-                mu = mu /2.0
-                l = l/2.0
 
                 log_pi.append(p)
-                loc_dict.append(mu, l)
+                mus.append(mu)
+                locs.append(l)
                 baselines.append(b)
-                I, gaf, u_in = utils.getDefocuesImage(l, x_test[:, t+1, ...], dpt[:, t+1, ...])
-
-                J_prev = utils.fuseTwoImages(I, J_prev)
 
                 if self.use_gan:
                     ## treat the agent as a Generator and update rewards
                     raise NotImplementedError("gan loss has not been implemented")
                 else:
-#                     r = greedyReward(data_dict["u_est"][-1], u_in)
-#                     r = greedyReward(u_in, u_in)
-#                     if t == x_test.size(1)-2:
-#                         for k in range(len(data_dict["J_est"])):
-#                             r = r-utils.reconsLoss(data_dict["J_est"][k].detach(), x_test[:, k]) * 100.0
-                    r = -utils.reconsLoss(J_prev.detach(), x_test[:, t+1]) * 100.0
-                    
+                    r = greedyReward(input_t, l)
+
                 reward.append(r)
                 reward_wo_gamma.append(r)
                 for tt in range(t):
                     reward[tt] = reward[tt] + (0.9 ** (t - tt)) * r
 
-                data_dict.append(I, J_prev, gaf, u_in)
-
-
-            data_dict.toTensor()
-            loc_dict.toTensor()
-
+            locs = torch.stack(locs).squeeze()
+            mus = torch.stack(mus).squeeze()
             baselines = torch.stack(baselines).transpose(1, 0)
             log_pi = torch.stack(log_pi).transpose(1, 0)
             R = torch.stack(reward).transpose(1, 0) * 1.0
@@ -478,20 +375,23 @@ class Trainer(object):
             loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
             loss_reinforce = torch.mean(loss_reinforce, dim=0)
 
-            if self.rl_loss:
-                loss = 0.1*loss_reinforce + loss_baseline
-            else:
-                loss = 0 * (loss_reinforce + loss_baseline)
-            loss += F.mse_loss(loc_dict['locs'], torch.stack(locs_gt, dim = 1))
+
+            loss = loss_reinforce + loss_baseline
+
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+
             losses.update(loss.item(), self.batch_size)
-            mselosses.update(torch.mean(utils.reconsLoss(data_dict["J_est"][:, 1:], x_test[:, 1:]), dim = 0).item(), self.batch_size)
+
+            rewards.update(torch.mean(torch.sum(R, dim = 1),dim = 0).item(),self.batch_size)
 
             if self.use_tensorboard:
                 iteration = epoch
                 self.writer.add_scalar('Stats/valid_loss', losses.avg, iteration)
-                self.writer.add_scalar('Stats/valid_mseloss(x1000)', mselosses.avg*1000.0, iteration)
+                self.writer.add_scalar('Stats/valid_reward', rewards.avg, iteration)
                 
-            return losses.avg, mselosses.avg*1000.0
+            return losses.avg, rewards.avg
     
     
     def test(self):
