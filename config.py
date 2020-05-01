@@ -23,7 +23,7 @@ data_arg.add_argument('--seq', type=int, default=4,
                       help='#seq of images in each batch of data')
 data_arg.add_argument('--std', type=int, default=0.17,
                       help='model distr std')
-data_arg.add_argument('--video_path', type=str, default="/home/qian/Documents/datasets/afs",
+data_arg.add_argument('--video_path', type=str, default="/home/qian/Documents/datasets/rfc_data/afs",
                       help='Directory in which to load frames')
 data_arg.add_argument('--depth_path', type=str, default="../datasets/DAVIS/test_davis_dpt_list.txt",
                       help='Directory in which to load depth maps w.r.t. frames')

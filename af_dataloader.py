@@ -17,6 +17,17 @@ def gci(filepath):
     if '.ipynb_checkpoints' in files:
         files.remove('.ipynb_checkpoints')
     return sorted(files)
+
+def get_jpg_files(path):
+
+    files = []
+    # r=root, d=directories, f = files
+    for r, d, f in os.walk(path):
+        for file in f:
+            if '.jpg' in file:
+                files.append(os.path.join(r, file))
+                
+    return files
     
 class afDataset(torch.utils.data.Dataset):
     
@@ -25,7 +36,6 @@ class afDataset(torch.utils.data.Dataset):
                                 transforms.RandomHorizontalFlip(),
                                 transforms.RandomVerticalFlip(),
                                 transforms.RandomCrop((1536, 3072)),
-                                transforms.Resize((64, 128)),
                                 transforms.ToTensor(),
                                 transforms.Normalize((0.5,),(0.5,))
                                ])):
@@ -45,10 +55,23 @@ class afDataset(torch.utils.data.Dataset):
 
         return X
     
+class afPathDataset(torch.utils.data.Dataset):
+    
+    def __init__(self, _path):
+        self.path = _path
+        self.files = get_jpg_files(self.path)
+        
+    def __len__(self):
+        return len(self.files)
+    
+    def __getitem__(self, index):
+
+        return self.files[index]
+    
 class afDataLoader():
     def __init__(self, _path, _batch_size, valid_size = 0.2, shuffle = True):
             
-        dataset = afDataset(_path)
+        dataset = afPathDataset(_path)
         num_train = len(dataset)
         indices = list(range(num_train))
         split = int(np.floor(valid_size * num_train))
