@@ -199,8 +199,52 @@ def getDefocuesImage(focusPos, J, dpt, threshold = 5e-2):
         simAutofocusTensor = simAutofocusTensor.cuda()
     
     return imageTensor, simAutofocusTensor, (torch.abs(simAutofocusTensor) < threshold).float()
-    
 
+def getAFs(dpts, locs):
+    batch_size, C, H, W = dpts.size()
+
+    afs = []
+    
+    for i in range(batch_size):
+        dpt = dpts[i]
+        loc = locs[i]
+        window_size = 512
+        x_l = int((loc[0]+1) * (H - window_size) / 2)
+        y_l = int((loc[1]+1) * (W - window_size) / 2)
+        x_r = int(min(H, x_l + window_size))
+        y_r = int(min(W, y_l + window_size))
+        af = torch.abs(dpt - dpt[:, x_l:x_r, y_l:y_r].mean())
+        af = ((af - af.min())*255.0/(af.max() - af.min())).int().float()/127.5 - 1.0
+        afs.append(af)
+    
+    afs = torch.stack(afs)
+    
+    return afs
+
+def greedyReward(input_t, locs):
+    batch_size, C, H, W = input_t.size()
+
+    rewards = []
+    
+    for i in range(batch_size):
+        loc = locs[i]
+        window_size = 512
+        x_l = int((loc[0]+1) * (H - window_size) / 2)
+        y_l = int((loc[1]+1) * (W - window_size) / 2)
+        x_r = int(min(H, x_l + window_size))
+        y_r = int(min(W, y_l + window_size))
+        if torch.mean(input_t[i][:, x_l:x_r, y_l:y_r]) > -0.5:
+            r = 1
+        else:
+            r = 0
+        rewards.append(r)
+    
+    rewards = torch.FloatTensor(rewards)
+    if input_t.is_cuda:
+        rewards = rewards.cuda()
+    
+    return rewards
+    
 
 def fuseTwoImages(I, J_hat):
     '''

@@ -21,7 +21,6 @@ import torch.nn.functional as F
 from discriminator import *
 import toy_utils
 import shutil
-from helper_funcs import *
 
 # In[2]:
 
@@ -135,7 +134,7 @@ class Trainer(object):
     def reset(self):
         h = [torch.zeros(1, self.batch_size, self.hidden_size).to(self.device),
                       torch.zeros(1, self.batch_size, self.hidden_size).to(self.device)]
-        l = torch.rand(self.batch_size, self.out_size).to(self.device)*2.0-1.0 #-0.5~0.5
+        l = torch.rand(self.batch_size, self.out_size).to(self.device)*2.0-1.0
         return h, l
       
             
@@ -201,44 +200,49 @@ class Trainer(object):
         batch_time = AverageMeter()
         losses = {"t_loss": AverageMeter(), "b_loss": AverageMeter(), "r_loss": AverageMeter()}
         rewards = AverageMeter()
-        mselosses = AverageMeter()
         tic = time.time()
         
         with tqdm(total=self.num_train) as pbar:
-            for i, batch_dir in enumerate(self.train_loader):
+            for i, (x_train, dpt) in enumerate(self.train_loader):
 
-#                 print("batch_dir: ", batch_dir)
-                self.batch_size = len(batch_dir)
+#                 x_train = x_train.to(self.device)
+                dpt = dpt.to(self.device)
+
+                self.batch_size = dpt.size(0)
+                self.seq = dpt.size(1)
                 
                 h, l = self.reset()
-
+                # data shape: x_train (B, Seq, C, H, W)
+                afs = []
                 mus = []
                 locs = []
+                
                 log_pi = []
                 baselines = []
                 reward = []
                 reward_wo_gamma = []
-                afs = []
                 
                 if self.use_gan:
                     ## build a discriminator
                     pass
                 
-                n_img = None
-                input_t = None
-                curr = get_curr(batch_dir)
-#                 print("curr: ", curr)
+                last_af = None
                 for t in range(self.seq):
                     
-#                     print("seq ", t)
+                    af = utils.getAFs(dpt[:, t, ...], l)
+                    ## !!!!!! af needs to be re-scaled !!!!!!!!!!
+                    ## or uint8 lize....
 
-                    input_t, clean_input_t = read_af(input_t, batch_dir, "NOSEED")
-                    
-#                     print("input_t.size():{}, max:{}, min{}".format(input_t.size(),input_t.max(), input_t.min()) )
+                    if last_af is None:
+                        input_t = af
+                    else:
+                        input_t = torch.min(af, last_af)
+                        
                     afs.append(input_t)
-                    
+                        
+                    last_af = af
                     h, mu, l, b, p = self.model(input_t, l, h)
-
+                    
                     log_pi.append(p)
                     mus.append(mu)
                     locs.append(l)
@@ -248,30 +252,13 @@ class Trainer(object):
                         ## treat the agent as a Generator and update rewards
                         raise NotImplementedError("gan loss has not been implemented")
                     else:
-                        r = greedyReward(input_t, l)
+
+                        r = utils.greedyReward(input_t, l)
 
                     reward.append(r)
                     reward_wo_gamma.append(r)
                     for tt in range(t):
                         reward[tt] = reward[tt] + (0.9 ** (t - tt)) * r
-                    
-                    if n_img is None:
-                        n_img = clean_input_t * 4.0 + 4.0
-                    else:    
-                        n_img = dist_est(clean_input_t * 4.0 + 4.0, torch.abs(n_img), dist_to_move)
-#                     print("n_img.size():{}, max:{}, min{}".format(n_img.size(),n_img.max(), n_img.min()) )
-                        
-                    dist_to_move = -dist_from_region(n_img, l)
-#                     print("dist_to_move: ", dist_to_move)
-                    curr = curr + solver(curr, dist_to_move) 
-                    curr = torch.clamp(curr, 450.0, 1000.0)
-                    curr[curr != curr] = 1000.0
-#                     print("curr: ", curr)
-#                     if curr.is_cuda:
-#                         print("curr.is_cuda")
-                    curr = torch.round(curr/50)*50
-                    batch_dir = get_batch_dir(batch_dir, curr)
-#                     print("batch_dir: ", batch_dir)
                 
                 afs = torch.stack(afs).transpose(1, 0)
                 locs = torch.stack(locs).transpose(1, 0)
@@ -288,7 +275,7 @@ class Trainer(object):
                 ## Basic REINFORCE algorithm
                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
-
+                
                 loss = loss_reinforce + loss_baseline
                 
                 self.optimizer.zero_grad()
@@ -300,7 +287,7 @@ class Trainer(object):
                 losses["r_loss"].update(loss_reinforce.item(), self.batch_size)
 
                 rewards.update(torch.mean(torch.sum(R, dim = 1),dim = 0).item(),self.batch_size)
-                
+
                 # measure elapsed time
                 toc = time.time()
                 batch_time.update(toc-tic)
@@ -314,6 +301,7 @@ class Trainer(object):
                 )
                 pbar.update(self.batch_size)
 
+
             if self.use_tensorboard:
                 iteration = epoch
                 self.writer.add_scalar('Stats/total_loss', losses["t_loss"].avg, iteration)
@@ -326,10 +314,9 @@ class Trainer(object):
 
                     
             if self.use_tensorboard and self.is_plot:
-
-                defocused = utils.color_region(afs[0].repeat(1, 3, 1, 1), locs[0])
+                defocused = utils.color_region(afs[0].repeat(1, 3, 1, 1), mus[0])
                 display_tensor = defocused
-                display_grid = torchvision.utils.make_grid(display_tensor/2+0.5, nrow = self.batch_size)
+                display_grid = torchvision.utils.make_grid(display_tensor/2+0.5, nrow = self.seq)
                 self.writer.add_image('Visualization', display_grid, epoch)
                 
 #                 rw_list = map(prettyfloat, R_wo_gamma.tolist()[0])
@@ -342,16 +329,21 @@ class Trainer(object):
         
         losses = AverageMeter()
         rewards = AverageMeter()
+        
+        for i, (x_train, dpt) in enumerate(self.valid_loader):
 
-        for i, batch_dir in enumerate(self.valid_loader):
+#                 x_train = x_train.to(self.device)
+            dpt = dpt.to(self.device)
 
-#                 print("batch_dir: ", batch_dir)
-            self.batch_size = len(batch_dir)
+            self.batch_size = dpt.size(0)
+            self.seq = dpt.size(1)
 
             h, l = self.reset()
-
+            # data shape: x_train (B, Seq, C, H, W)
+            afs = []
             mus = []
             locs = []
+
             log_pi = []
             baselines = []
             reward = []
@@ -361,13 +353,21 @@ class Trainer(object):
                 ## build a discriminator
                 pass
 
-            n_img = None
-            input_t = None
-            curr = get_curr(batch_dir)
+            last_af = None
             for t in range(self.seq):
 
-                input_t, clean_input_t = read_af(input_t, batch_dir, "NOSEED")
+                af = utils.getAFs(dpt[:, t, ...], l)
+                ## !!!!!! af needs to be re-scaled !!!!!!!!!!
+                ## or uint8 lize....
 
+                if last_af is None:
+                    input_t = af
+                else:
+                    input_t = torch.min(af, last_af)
+
+                afs.append(input_t)
+
+                last_af = af
                 h, mu, l, b, p = self.model(input_t, l, h)
 
                 log_pi.append(p)
@@ -379,25 +379,15 @@ class Trainer(object):
                     ## treat the agent as a Generator and update rewards
                     raise NotImplementedError("gan loss has not been implemented")
                 else:
-                    r = greedyReward(input_t, l)
+
+                    r = utils.greedyReward(input_t, l)
 
                 reward.append(r)
                 reward_wo_gamma.append(r)
                 for tt in range(t):
                     reward[tt] = reward[tt] + (0.9 ** (t - tt)) * r
 
-                if n_img is None:
-                    n_img = clean_input_t * 4.0 + 4.0
-                else:    
-                    n_img = dist_est(clean_input_t * 4.0 + 4.0, torch.abs(n_img), dist_to_move)
-
-                dist_to_move = -dist_from_region(n_img, l)
-                curr = curr + solver(curr, dist_to_move) 
-                curr = torch.clamp(curr, 450.0, 1000.0)
-                curr[curr != curr] = 1000.0
-                curr = torch.round(curr/50)*50
-                batch_dir = get_batch_dir(batch_dir, curr)
-
+            afs = torch.stack(afs).transpose(1, 0)
             locs = torch.stack(locs).transpose(1, 0)
             mus = torch.stack(mus).transpose(1, 0)
             baselines = torch.stack(baselines).transpose(1, 0)
@@ -416,15 +406,14 @@ class Trainer(object):
             loss = loss_reinforce + loss_baseline
 
             losses.update(loss.item(), self.batch_size)
-
             rewards.update(torch.mean(torch.sum(R, dim = 1),dim = 0).item(),self.batch_size)
 
-        if self.use_tensorboard:
-            iteration = epoch
-            self.writer.add_scalar('Stats/valid_loss', losses.avg, iteration)
-            self.writer.add_scalar('Stats/valid_reward', rewards.avg, iteration)
-
-        return losses.avg, rewards.avg
+            if self.use_tensorboard:
+                iteration = epoch
+                self.writer.add_scalar('Stats/valid_loss', losses.avg, iteration)
+                self.writer.add_scalar('Stats/valid_reward', rewards.avg, iteration)
+                
+            return losses.avg, rewards.avg
     
     
     def test(self):

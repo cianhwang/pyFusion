@@ -40,7 +40,7 @@ def greedyReward(input_t, locs):
     
     for i in range(batch_size):
         loc = locs[i]
-        window_size = 512
+        window_size = min(H, W)//4
         x_l = int((loc[0]+1) * (H - window_size) / 2)
         y_l = int((loc[1]+1) * (W - window_size) / 2)
         x_r = int(min(H, x_l + window_size))
@@ -79,7 +79,7 @@ def dist_from_region(n_imgs, locs):
 
     batch_size, C, H, W = n_imgs.shape
     assert C == 1
-    window_size =  512
+    window_size =  min(H, W)//4
     for i in range(batch_size):
         loc = locs[i]
         n_img = n_imgs[i, 0]

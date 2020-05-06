@@ -2,8 +2,8 @@ import torch
 
 from trainer import Trainer
 from config import get_config
-# from data_loader import load_davis_dataset
-from af_dataloader import load_af_dataset
+from data_loader import load_davis_dataset
+# from af_dataloader import load_af_dataset
 
 
 def main(config):
@@ -15,8 +15,8 @@ def main(config):
 
     # instantiate data loaders
 #     if config.is_train:
-#     data_loader = load_davis_dataset(config.video_path, config.depth_path, config.seq, config.batch_size)
-    data_loader = load_af_dataset(config.video_path, config.batch_size)
+    data_loader = load_davis_dataset(config.video_path, config.depth_path, config.seq, config.batch_size)
+#     data_loader = load_af_dataset(config.video_path, config.batch_size)
 
     # instantiate trainer
     trainer = Trainer(config, data_loader)
