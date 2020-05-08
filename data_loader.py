@@ -129,7 +129,7 @@ class SeqRandomCrop(object):
         i, j, h, w = self.get_params(dpt_seq[0], self.size)
 
         for i, (img, dpt) in enumerate(zip(img_seq, dpt_seq)):
-#             img_seq[i] = TF.crop(img, i, j, h, w)
+            img_seq[i] = TF.crop(img, i, j, h, w)
             dpt_seq[i] = TF.crop(dpt, i, j, h, w)
         return img_seq, dpt_seq
     
@@ -141,7 +141,7 @@ class SeqResize(object):
 
     def __call__(self, img_seq, dpt_seq):
         for i, (img, dpt) in enumerate(zip(img_seq, dpt_seq)):
-#             img_seq[i] = TF.resize(img, self.size, self.interpolation)
+            img_seq[i] = TF.resize(img, self.size, self.interpolation)
             dpt_seq[i] = TF.resize(dpt, self.size, self.interpolation)
         return img_seq, dpt_seq
     
@@ -179,8 +179,8 @@ class DAVISImageFolder(data.Dataset):
                                 SeqToPILImage(),
                                 SeqRandomHorizontalFlip(),
                                 SeqRandomVerticalFlip(),
-                                SeqResize((2048, 3584)),
-                                SeqRandomCrop((1536, 3072)),
+                                SeqResize((1080, 1920)),
+#                                 SeqRandomCrop((1536, 3072)),
                                 SeqToTensor()])):
         img_list, dpt_list = make_dataset(list_path, dpt_list_path)
         if len(img_list) == 0:

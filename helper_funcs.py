@@ -26,6 +26,7 @@ def read_af(input_t, batch_dir, seed):
     for i, subdir in enumerate(batch_dir):
         af = imread(subdir)
         af = trans_w_seed(af, i)
+#         af = (af - af.min())/(af.max() - af.min()) * 2.0 - 1.0
         afs.append(af)
     afs = torch.stack(afs).cuda()
     clean_afs = afs.clone().cuda()
@@ -45,7 +46,7 @@ def greedyReward(input_t, locs):
         y_l = int((loc[1]+1) * (W - window_size) / 2)
         x_r = int(min(H, x_l + window_size))
         y_r = int(min(W, y_l + window_size))
-        if torch.mean(input_t[i][:, x_l:x_r, y_l:y_r]) > -0.5:
+        if torch.mean(input_t[i][:, x_l:x_r, y_l:y_r]) > 0:
             r = 1
         else:
             r = 0

@@ -44,7 +44,7 @@ class afDataset(torch.utils.data.Dataset):
         self.files = gci(self.path)
         
     def __len__(self):
-        return len(self.files)
+        return min(1000, len(self.files))
     
     def __getitem__(self, index):
 
@@ -52,6 +52,8 @@ class afDataset(torch.utils.data.Dataset):
         
         if self.transform:
             X = self.transform(X)
+            
+        X = (X - X.min())/(X.max() - X.min()) * 2.0 - 1.0
 
         return X
     
@@ -71,7 +73,7 @@ class afPathDataset(torch.utils.data.Dataset):
 class afDataLoader():
     def __init__(self, _path, _batch_size, valid_size = 0.2, shuffle = True):
             
-        dataset = afPathDataset(_path)
+        dataset = afDataset(_path)
         num_train = len(dataset)
         indices = list(range(num_train))
         split = int(np.floor(valid_size * num_train))
@@ -100,8 +102,26 @@ class afDataLoader():
 
         return len(self.dataset)
     
+class afDataLoader2():
+    def __init__(self, _path, _batch_size, shuffle = True):
+            
+        train_dataset = afDataset('/home/qian/Documents/datasets/afs_sim')
+        valid_dataset = afDataset('/home/qian/Documents/datasets/afs')
+            
+        self.train_loader = torch.utils.data.DataLoader(train_dataset,
+                                                       batch_size=_batch_size,
+                                                       shuffle=True,
+                                                       num_workers=int(8))
+        self.valid_loader = torch.utils.data.DataLoader(valid_dataset,
+                                                       batch_size=_batch_size,
+                                                       shuffle=True,
+                                                       num_workers=int(8))
+    def load_data(self):
+        return (self.train_loader, self.valid_loader)
+
+    
 def load_af_dataset(af_path, batch_size = 5):
-    video_data_loader = afDataLoader(af_path, batch_size)
+    video_data_loader = afDataLoader2(af_path, batch_size)
     video_dataset = video_data_loader.load_data()
     return video_dataset
 

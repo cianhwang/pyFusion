@@ -80,9 +80,9 @@ class Trainer(object):
         
         if self.is_train: #
             self.train_loader = data_loader[0]
-            self.num_train = len(self.train_loader.sampler.indices)
+            self.num_train = len(self.train_loader.dataset)#.sampler.indices)
             self.valid_loader = data_loader[1]
-            self.num_valid = len(self.valid_loader.sampler.indices)
+            self.num_valid = len(self.valid_loader.dataset)#.sampler.indices)
         else:
             self.test_loader = data_loader
             self.num_test = len(self.test_loader.dataset)
@@ -134,7 +134,7 @@ class Trainer(object):
     def reset(self):
         h = [torch.zeros(1, self.batch_size, self.hidden_size).to(self.device),
                       torch.zeros(1, self.batch_size, self.hidden_size).to(self.device)]
-        l = torch.rand(self.batch_size, self.out_size).to(self.device)*2.0-1.0
+        l = torch.rand(self.batch_size, self.out_size).to(self.device)*2.0-1.0 #-0.5~0.5
         return h, l
       
             
@@ -200,23 +200,23 @@ class Trainer(object):
         batch_time = AverageMeter()
         losses = {"t_loss": AverageMeter(), "b_loss": AverageMeter(), "r_loss": AverageMeter()}
         rewards = AverageMeter()
+        mselosses = AverageMeter()
         tic = time.time()
         
         with tqdm(total=self.num_train) as pbar:
-            for i, (x_train, dpt) in enumerate(self.train_loader):
+            for i, x_train in enumerate(self.train_loader):
 
-#                 x_train = x_train.to(self.device)
-                dpt = dpt.to(self.device)
+                x_train = x_train.to(self.device)
 
-                self.batch_size = dpt.size(0)
-                self.seq = dpt.size(1)
+                self.batch_size = x_train.size(0)
+                
+                if self.batch_size == 1:
+                    continue
                 
                 h, l = self.reset()
-                # data shape: x_train (B, Seq, C, H, W)
-                afs = []
+
                 mus = []
                 locs = []
-                
                 log_pi = []
                 baselines = []
                 reward = []
@@ -225,24 +225,13 @@ class Trainer(object):
                 if self.use_gan:
                     ## build a discriminator
                     pass
-                
-                last_af = None
-                for t in range(self.seq):
-                    
-                    af = utils.getAFs(dpt[:, t, ...], l)
-                    ## !!!!!! af needs to be re-scaled !!!!!!!!!!
-                    ## or uint8 lize....
 
-                    if last_af is None:
-                        input_t = af
-                    else:
-                        input_t = torch.min(af, last_af)
-                        
-                    afs.append(input_t)
-                        
-                    last_af = af
-                    h, mu, l, b, p = self.model(input_t, l, h)
+                for t in range(1):
                     
+                    input_t = x_train
+                    
+                    h, mu, l, b, p = self.model(input_t, l, h)
+
                     log_pi.append(p)
                     mus.append(mu)
                     locs.append(l)
@@ -252,17 +241,15 @@ class Trainer(object):
                         ## treat the agent as a Generator and update rewards
                         raise NotImplementedError("gan loss has not been implemented")
                     else:
-
-                        r = utils.greedyReward(input_t, l)
+                        r = greedyReward(input_t, l)
 
                     reward.append(r)
                     reward_wo_gamma.append(r)
                     for tt in range(t):
                         reward[tt] = reward[tt] + (0.9 ** (t - tt)) * r
-                
-                afs = torch.stack(afs).transpose(1, 0)
-                locs = torch.stack(locs).transpose(1, 0)
-                mus = torch.stack(mus).transpose(1, 0)
+
+                locs = torch.stack(locs).squeeze()
+                mus = torch.stack(mus).squeeze()
                 baselines = torch.stack(baselines).transpose(1, 0)
                 log_pi = torch.stack(log_pi).transpose(1, 0)
                 R = torch.stack(reward).transpose(1, 0) * 1.0
@@ -276,6 +263,7 @@ class Trainer(object):
                 loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
                 
+
                 loss = loss_reinforce + loss_baseline
                 
                 self.optimizer.zero_grad()
@@ -287,7 +275,7 @@ class Trainer(object):
                 losses["r_loss"].update(loss_reinforce.item(), self.batch_size)
 
                 rewards.update(torch.mean(torch.sum(R, dim = 1),dim = 0).item(),self.batch_size)
-
+                
                 # measure elapsed time
                 toc = time.time()
                 batch_time.update(toc-tic)
@@ -301,9 +289,12 @@ class Trainer(object):
                 )
                 pbar.update(self.batch_size)
 
-
             if self.use_tensorboard:
-                iteration = epoch
+                iteration = epoch#*len(self.train_loader)# + i
+#                 self.writer.add_scalars('Stats/total_loss', {"t_loss":losses["t_loss"].avg, 
+#                                                              "b_loss":losses["b_loss"].avg,
+#                                                              "r_loss":losses["r_loss"].avg}
+#                                                              , iteration)
                 self.writer.add_scalar('Stats/total_loss', losses["t_loss"].avg, iteration)
                 self.writer.add_scalar('Stats/reinforce_loss', losses["r_loss"].avg, iteration)
                 self.writer.add_scalar('Stats/reward', rewards.avg, iteration)
@@ -314,13 +305,14 @@ class Trainer(object):
 
                     
             if self.use_tensorboard and self.is_plot:
-                defocused = utils.color_region(afs[0].repeat(1, 3, 1, 1), mus[0])
+
+                defocused = utils.color_region(x_train.repeat(1, 3, 1, 1), locs)
                 display_tensor = defocused
-                display_grid = torchvision.utils.make_grid(display_tensor/2+0.5, nrow = self.seq)
+                display_grid = torchvision.utils.make_grid(display_tensor/2+0.5, nrow = self.batch_size)
                 self.writer.add_image('Visualization', display_grid, epoch)
                 
-#                 rw_list = map(prettyfloat, R_wo_gamma.tolist()[0])
-#                 self.writer.add_text("reward log", '[%s]' % ', '.join(map(str, rw_list)), epoch)
+                rw_list = map(prettyfloat, R_wo_gamma.tolist()[0])
+                self.writer.add_text("reward log", '[%s]' % ', '.join(map(str, rw_list)), epoch)
 
             return losses["t_loss"].avg, rewards.avg
         
@@ -329,21 +321,20 @@ class Trainer(object):
         
         losses = AverageMeter()
         rewards = AverageMeter()
-        
-        for i, (x_train, dpt) in enumerate(self.valid_loader):
 
-#                 x_train = x_train.to(self.device)
-            dpt = dpt.to(self.device)
+        for i, x_train in enumerate(self.valid_loader):
 
-            self.batch_size = dpt.size(0)
-            self.seq = dpt.size(1)
+            x_train = x_train.to(self.device)
+
+            self.batch_size = x_train.size(0)
+            
+            if self.batch_size == 1:
+                continue
 
             h, l = self.reset()
-            # data shape: x_train (B, Seq, C, H, W)
-            afs = []
+
             mus = []
             locs = []
-
             log_pi = []
             baselines = []
             reward = []
@@ -353,21 +344,10 @@ class Trainer(object):
                 ## build a discriminator
                 pass
 
-            last_af = None
-            for t in range(self.seq):
+            for t in range(1):
 
-                af = utils.getAFs(dpt[:, t, ...], l)
-                ## !!!!!! af needs to be re-scaled !!!!!!!!!!
-                ## or uint8 lize....
+                input_t = x_train
 
-                if last_af is None:
-                    input_t = af
-                else:
-                    input_t = torch.min(af, last_af)
-
-                afs.append(input_t)
-
-                last_af = af
                 h, mu, l, b, p = self.model(input_t, l, h)
 
                 log_pi.append(p)
@@ -379,17 +359,15 @@ class Trainer(object):
                     ## treat the agent as a Generator and update rewards
                     raise NotImplementedError("gan loss has not been implemented")
                 else:
-
-                    r = utils.greedyReward(input_t, l)
+                    r = greedyReward(input_t, l)
 
                 reward.append(r)
                 reward_wo_gamma.append(r)
                 for tt in range(t):
                     reward[tt] = reward[tt] + (0.9 ** (t - tt)) * r
 
-            afs = torch.stack(afs).transpose(1, 0)
-            locs = torch.stack(locs).transpose(1, 0)
-            mus = torch.stack(mus).transpose(1, 0)
+            locs = torch.stack(locs).squeeze()
+            mus = torch.stack(mus).squeeze()
             baselines = torch.stack(baselines).transpose(1, 0)
             log_pi = torch.stack(log_pi).transpose(1, 0)
             R = torch.stack(reward).transpose(1, 0) * 1.0
@@ -403,17 +381,19 @@ class Trainer(object):
             loss_reinforce = torch.sum(-log_pi*adjusted_reward, dim=1)
             loss_reinforce = torch.mean(loss_reinforce, dim=0)
 
+
             loss = loss_reinforce + loss_baseline
 
             losses.update(loss.item(), self.batch_size)
+
             rewards.update(torch.mean(torch.sum(R, dim = 1),dim = 0).item(),self.batch_size)
 
-            if self.use_tensorboard:
-                iteration = epoch
-                self.writer.add_scalar('Stats/valid_loss', losses.avg, iteration)
-                self.writer.add_scalar('Stats/valid_reward', rewards.avg, iteration)
-                
-            return losses.avg, rewards.avg
+        if self.use_tensorboard:
+            iteration = epoch
+            self.writer.add_scalar('Stats/valid_loss', losses.avg, iteration)
+            self.writer.add_scalar('Stats/valid_reward', rewards.avg, iteration)
+
+        return losses.avg, rewards.avg
     
     
     def test(self):
@@ -559,5 +539,3 @@ class Trainer(object):
         self.optimizer.load_state_dict(ckpt['optim_state'])   
         
         print("[*] Loaded model from {}".format(self.ckpt_dir))
-
-   

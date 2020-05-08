@@ -11,13 +11,14 @@ from dep2def import depth2defocus
 from functools import partial
 from awnet import pwc_5x5_sigmoid_bilinear   # cm:import AWnet model
 import pytorch_ssim
+import cv2
 
 # In[2]:
 
 AWnet = pwc_5x5_sigmoid_bilinear.pwc_residual().cuda()
 AWnet.load_state_dict(torch.load('awnet/fs0_61_294481_0.00919393_dict.pkl'))
 
-width = 256  # img.shape[1]
+width = 1024  # img.shape[1]
 f = 25
 fn = 4
 FoV_h = 10 * np.pi / 180
@@ -112,12 +113,12 @@ def depth_from_region(depthmap, loc):
             #print("fun_depth_from_region: ({}, {})".format(x_l, y_l))
 
         if type(loc) == torch.Tensor:
-            value = torch.median(depthmap[x_l:x_r, y_l:y_r])
+            value = torch.mean(depthmap[x_l:x_r, y_l:y_r])
         else:
-            value = np.median(depthmap[x_l:x_r, y_l:y_r])
+            value = np.mean(depthmap[x_l:x_r, y_l:y_r])
     else:
         value = np.clip(loc[0]*6000+4000, depthmap.min(), depthmap.max())
-    
+    print(value)
     return value
 
 def color_region(tensors, locs):
@@ -185,7 +186,11 @@ def getDefocuesImage(focusPos, J, dpt, threshold = 5e-2):
         focal_img = myd2d(J_np, dpt_np, focusPos_np, inpaint_occlusion=False)
         focal_img = focal_img/127.5-1
         focal_img = n2t(focal_img)
-        sim_autofocus_map = ((dpt_np - focusPos_np)[..., np.newaxis])/6000.0
+        dpt_np = cv2.resize(dpt_np, (3072, 1536))
+        sim_autofocus_map = np.abs((dpt_np - focusPos_np)[..., np.newaxis])/6000.0
+        ############# 05/07/2020
+        sim_autofocus_map = (sim_autofocus_map - sim_autofocus_map.min()) / (sim_autofocus_map.max() - sim_autofocus_map.min())*2.0-1.0
+        
         assert (sim_autofocus_map.max() <= 1) and (sim_autofocus_map.min() >= -1)
         sim_autofocus_map = n2t(sim_autofocus_map)
         simAutofocusTensor.append(sim_autofocus_map)
@@ -228,12 +233,12 @@ def greedyReward(input_t, locs):
     
     for i in range(batch_size):
         loc = locs[i]
-        window_size = 512
+        window_size = min(H, W)//4
         x_l = int((loc[0]+1) * (H - window_size) / 2)
         y_l = int((loc[1]+1) * (W - window_size) / 2)
         x_r = int(min(H, x_l + window_size))
         y_r = int(min(W, y_l + window_size))
-        if torch.mean(input_t[i][:, x_l:x_r, y_l:y_r]) > -0.5:
+        if torch.mean(input_t[i][:, x_l:x_r, y_l:y_r]) > 0.0:
             r = 1
         else:
             r = 0
