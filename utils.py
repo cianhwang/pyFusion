@@ -9,16 +9,16 @@ import torch.nn.functional as F
 import numpy as np
 from dep2def import depth2defocus
 from functools import partial
-from awnet import pwc_5x5_sigmoid_bilinear   # cm:import AWnet model
+# from awnet import pwc_5x5_sigmoid_bilinear   # cm:import AWnet model
 import pytorch_ssim
 import cv2
 
-# In[2]:
+# # In[2]:
 
-AWnet = pwc_5x5_sigmoid_bilinear.pwc_residual().cuda()
-AWnet.load_state_dict(torch.load('awnet/fs0_61_294481_0.00919393_dict.pkl'))
+# AWnet = pwc_5x5_sigmoid_bilinear.pwc_residual().cuda()
+# AWnet.load_state_dict(torch.load('awnet/fs0_61_294481_0.00919393_dict.pkl'))
 
-width = 1024  # img.shape[1]
+width = 1080 # img.shape[1]
 f = 25
 fn = 4
 FoV_h = 10 * np.pi / 180
@@ -118,7 +118,6 @@ def depth_from_region(depthmap, loc):
             value = np.mean(depthmap[x_l:x_r, y_l:y_r])
     else:
         value = np.clip(loc[0]*6000+4000, depthmap.min(), depthmap.max())
-    print(value)
     return value
 
 def color_region(tensors, locs):
