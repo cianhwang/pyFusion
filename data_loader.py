@@ -177,8 +177,8 @@ class DAVISImageFolder(data.Dataset):
 
     def __init__(self, list_path, dpt_list_path, seq, transform = ComposedTransforms([
                                 SeqToPILImage(),
-                                SeqRandomHorizontalFlip(),
-                                SeqRandomVerticalFlip(),
+#                                 SeqRandomHorizontalFlip(),
+#                                 SeqRandomVerticalFlip(),
                                 SeqResize((1080, 1920)),
 #                                 SeqRandomCrop((1536, 3072)),
                                 SeqToTensor()])):

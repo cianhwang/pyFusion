@@ -231,7 +231,7 @@ class Trainer(object):
                     input_t = x_train
                     
                     h, mu, l, b, p = self.model(input_t, l, h)
-
+                    l = torch.zeros_like(l).to(self.device)
                     log_pi.append(p)
                     mus.append(mu)
                     locs.append(l)
@@ -349,7 +349,7 @@ class Trainer(object):
                 input_t = x_train
 
                 h, mu, l, b, p = self.model(input_t, l, h)
-
+                l = torch.zeros_like(l).to(self.device)#*2.0 - 1.0
                 log_pi.append(p)
                 mus.append(mu)
                 locs.append(l)

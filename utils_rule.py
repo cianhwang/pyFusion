@@ -20,7 +20,7 @@ import cv2
 
 width = 1080 # img.shape[1]
 f = 25
-fn = 4
+fn = 2
 FoV_h = 10 * np.pi / 180
 pp = 2 * f * np.tan(FoV_h / 2) / width  # pixel pitch in mm
 gamma = 2.4
@@ -98,32 +98,32 @@ def reconsLoss(J_est, J_gt):
 
 def depth_from_region(depthmap, loc):
     
-    assert len(depthmap.shape) == 2
-    assert len(loc.shape) == 1
+#     assert len(depthmap.shape) == 2
+#     print(loc.shape)
+#     assert len(loc.shape) == 1
     
-    if loc.shape[0] == 2:
-        H, W = depthmap.shape
-        window_size =  min(H, W)//4
+#     if loc.shape[0] == 2:
+#         H, W = depthmap.shape
+#         window_size =  min(H, W)//4
 
-        x_l = int((loc[0]+1) * (H - window_size) / 2)
-        y_l = int((loc[1]+1) * (W - window_size) / 2)
-        x_r = int(min(H, x_l + window_size))
-        y_r = int(min(W, y_l + window_size))
+#         x_l = int((loc[0]+1) * (H - window_size) / 2)
+#         y_l = int((loc[1]+1) * (W - window_size) / 2)
+#         x_r = int(min(H, x_l + window_size))
+#         y_r = int(min(W, y_l + window_size))
 
-            #print("fun_depth_from_region: ({}, {})".format(x_l, y_l))
+#             #print("fun_depth_from_region: ({}, {})".format(x_l, y_l))
 
-        if type(loc) == torch.Tensor:
-            value = torch.mean(depthmap[x_l:x_r, y_l:y_r])
-        else:
-            value = np.mean(depthmap[x_l:x_r, y_l:y_r])
-    else:
-        value = np.clip(loc[0]*6000+4000, depthmap.min(), depthmap.max())
-    return value
+#         if type(loc) == torch.Tensor:
+#             value = torch.mean(depthmap[x_l:x_r, y_l:y_r])
+#         else:
+#             value = np.mean(depthmap[x_l:x_r, y_l:y_r])
+#     else:
+#         value = np.clip(loc[0]*6000+4000, depthmap.min(), depthmap.max())
+    return loc * 1000
 
 def color_region(tensors, locs):
     
     S, C, H, W = tensors.size()
-    tensors_copy = tensors.clone()
     assert S == locs.size(0)
     if locs.size(1) == 2:
         for i in range(S):
@@ -133,10 +133,10 @@ def color_region(tensors, locs):
             y_l = int((loc[1]+1) * (W - window_size) / 2)
             x_r = int(min(H, x_l + window_size))
             y_r = int(min(W, y_l + window_size))
-            tensors_copy[i][1:, x_l:x_r, y_l:y_r] = -1
-            tensors_copy[i][0, x_l:x_r, y_l:y_r] = 1
+            tensors[i][1:, x_l:x_r, y_l:y_r] = -1
+            tensors[i][0, x_l:x_r, y_l:y_r] = 1
     
-    return tensors_copy
+    return tensors
 
 # def torchlight(locs, tensors, *args):
     
@@ -183,12 +183,13 @@ def getDefocuesImage(focusPos, J, dpt, threshold = 5e-2):
         dpt_np = dpt[i].squeeze().numpy()*1000.0
         focusPos_np = focusPos[i].detach().numpy()
         focusPos_np = depth_from_region(dpt_np, focusPos_np)
+        print("focusPos_np ", focusPos_np)
         focal_img = myd2d(J_np, dpt_np, focusPos_np, inpaint_occlusion=False)
         focal_img = focal_img/127.5-1
         focal_img = n2t(focal_img)
         dpt_np = cv2.resize(dpt_np, (3072, 1536))
         sim_autofocus_map = np.abs((dpt_np - focusPos_np)[..., np.newaxis])/6000.0
-        ############# 05/07/2020
+        ############# 05/07/2020 #########
         sim_autofocus_map = (sim_autofocus_map - sim_autofocus_map.min()) / (sim_autofocus_map.max() - sim_autofocus_map.min())*2.0-1.0
         
         assert (sim_autofocus_map.max() <= 1) and (sim_autofocus_map.min() >= -1)
@@ -204,6 +205,26 @@ def getDefocuesImage(focusPos, J, dpt, threshold = 5e-2):
         simAutofocusTensor = simAutofocusTensor.cuda()
     
     return imageTensor, simAutofocusTensor, (torch.abs(simAutofocusTensor) < threshold).float()
+
+def rule_based(dpts, locs):
+    batch_size = dpts.size(0)
+    new_locs = []
+    for i in range(batch_size):
+        dpt_np = dpts[i].cpu().squeeze().numpy()
+        focusPos_np = locs[i].item()
+        print(focusPos_np)
+        dist_vec = dpt_np.flatten()
+        dist_vec = dist_vec[np.abs(dist_vec - focusPos_np)>1.5]
+        n, bins = np.histogram(dist_vec, bins=10)
+
+        idx_sorted = np.argsort(n)[::-1]
+        dist_to_move = (bins[idx_sorted[0]]+bins[idx_sorted[0]+1])/2
+        new_locs.append(dist_to_move)
+        
+    new_locs = torch.tensor(new_locs).float().cuda()
+    print(new_locs)
+    return new_locs
+        
 
 def getAFs(dpts, locs):
     batch_size, C, H, W = dpts.size()
