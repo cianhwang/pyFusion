@@ -183,7 +183,7 @@ def getDefocuesImage(focusPos, J, dpt, threshold = 5e-2):
         dpt_np = dpt[i].squeeze().numpy()*1000.0
         focusPos_np = focusPos[i].detach().numpy()
         focusPos_np = depth_from_region(dpt_np, focusPos_np)
-        print("focusPos_np ", focusPos_np)
+#         print("focusPos_np ", focusPos_np)
         focal_img = myd2d(J_np, dpt_np, focusPos_np, inpaint_occlusion=False)
         focal_img = focal_img/127.5-1
         focal_img = n2t(focal_img)
@@ -212,7 +212,7 @@ def rule_based(dpts, locs):
     for i in range(batch_size):
         dpt_np = dpts[i].cpu().squeeze().numpy()
         focusPos_np = locs[i].item()
-        print(focusPos_np)
+#         print(focusPos_np)
         dist_vec = dpt_np.flatten()
         dist_vec = dist_vec[np.abs(dist_vec - focusPos_np)>1.5]
         n, bins = np.histogram(dist_vec, bins=10)
@@ -222,7 +222,7 @@ def rule_based(dpts, locs):
         new_locs.append(dist_to_move)
         
     new_locs = torch.tensor(new_locs).float().cuda()
-    print(new_locs)
+#     print(new_locs)
     return new_locs
         
 
